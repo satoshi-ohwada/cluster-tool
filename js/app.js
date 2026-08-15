@@ -633,6 +633,10 @@ document.addEventListener('DOMContentLoaded', () => {
         html += `<p>全 <b>${N}</b> 件のデータを<b>「${methodName} × ${metricName}」</b>で階層的にグループ化した構造です。結合高度 <b>h = ${cutHeight.toFixed(2)}</b> の赤破線で切断することにより、全体が <b>${k} 個のクラスタ</b> に最適分割されています。</p>`;
         html += `<p style="margin-top:0.3rem;">樹形図の右側（縦表示時は下側）で早く枝が繋がっているサンプル同士ほど類似性が高く、左側（縦表示時は上側）での大きな分岐は、まったく異なる性質を持つセグメント同士の境界を表します。</p>`;
 
+        if (state.linkageMethod === 'centroid') {
+            html += `<p style="margin-top:0.5rem; padding:0.5rem 0.75rem; background:#fffbeb; border:1px solid #fef3c7; border-radius:6px; color:#b45309; font-size:0.83rem; line-height:1.5;">⚠️ <b>重心法（Centroid）の特性解説</b>: 重心法では、結合が進む過程で新クラスタの重心間距離が局所的に小さくなる「逆転現象（非単調性）」が発生することがあります。当ツールでは枝の突き抜けや極端な歪みが生じないよう包絡スケーリングにより美しく表示補正しています。実務において単調で綺麗な樹形図を求める場合は『ウォード法』または『グループ平均法』の使用が推奨されます。</p>`;
+        }
+
         el.innerHTML = html;
     }
 

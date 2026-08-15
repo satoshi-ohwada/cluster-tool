@@ -25,13 +25,20 @@ window.DendrogramRenderer = (function () {
     }
 
     /**
+     * 重心法等の非単調（非モノトニック）な結合高さ逆転現象を補正し、
+     * 親ノードの描画用高度を算出する関数
+     */
+    function getRenderHeight(node) {
+        if (!node) return 0;
+        if (node.isLeaf) return 0;
+        const leftH = getRenderHeight(node.left);
+        const rightH = getRenderHeight(node.right);
+        // モノトニック包絡線を適用（重心法で child > parent になった場合の突出・反転を補正）
+        return Math.max(node.height, leftH, rightH);
+    }
+
+    /**
      * デンドログラムを描画する関数
-     * @param {HTMLElement} container - 描画先のDOMコンテナ
-     * @param {Object} clusteringResult - { root, nodes, N }
-     * @param {Array<string>} sampleLabels - 各サンプルのラベル（名称）
-     * @param {number} currentK - 現在指定中のクラスタ数 k
-     * @param {Array<number>} assignments - サンプルごとのクラスタ割当ID [0..N-1]
-     * @param {Object} options - { orientation: 'vertical'|'horizontal', onSelectK: function }
      */
     function render(container, clusteringResult, sampleLabels, currentK, assignments, options = {}) {
         if (!container || !clusteringResult || !clusteringResult.root) return;
@@ -62,8 +69,8 @@ window.DendrogramRenderer = (function () {
         const width = containerWidth - margin.left - margin.right;
         const height = containerHeight - margin.top - margin.bottom;
 
-        // 最大高さ height の取得
-        const maxHeight = root.height || 1;
+        // 全ツリー中の絶対最大描画高度を取得（重心法などの逆転時にも突き抜けないよう画面全体を正規化）
+        const maxHeight = getRenderHeight(root) || 1;
 
         // 葉ノードの位置計算 (Leaf X/Y Coordinates)
         const leafOrder = window.ClusterEngine.getLeafOrder(root);
@@ -104,9 +111,10 @@ window.DendrogramRenderer = (function () {
             const leftLayout = layoutNode(node.left);
             const rightLayout = layoutNode(node.right);
 
-            let x, y;
-            const normHeight = node.height / maxHeight;
+            const renderH = getRenderHeight(node);
+            const normHeight = Math.min(1, Math.max(0, renderH / maxHeight));
 
+            let x, y;
             if (orientation === 'vertical') {
                 x = (leftLayout.x + rightLayout.x) / 2;
                 y = height * (1 - normHeight); // 上がroot (y=0)
@@ -212,9 +220,10 @@ window.DendrogramRenderer = (function () {
                 circle.setAttribute('stroke-width', '1.5');
                 circle.style.cursor = 'pointer';
 
-                // ツールチップ設定
+                // ツールチップ設定 (逆転現象の検知)
+                const isReversal = lNode.left && lNode.right && (lNode.node.height < getRenderHeight(lNode.left.node) || lNode.node.height < getRenderHeight(lNode.right.node));
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-                title.textContent = `結合高さ: ${lNode.node.height.toFixed(3)}\n構成サンプル数: ${lNode.node.size} 件`;
+                title.textContent = `結合高さ: ${lNode.node.height.toFixed(3)}${isReversal ? ' (※重心法による逆転現象)' : ''}\n構成サンプル数: ${lNode.node.size} 件`;
                 circle.appendChild(title);
 
                 nodeGroup.appendChild(circle);
@@ -274,7 +283,6 @@ window.DendrogramRenderer = (function () {
                 tx = -15; ty = height * ratio + 4;
                 anchor = 'end';
             } else {
-                // 横向き: 左(x=0)がroot(maxHeight)、右(x=width)が葉(0.00)
                 x1 = width * (1 - ratio); y1 = -10;
                 x2 = width * (1 - ratio); y2 = height;
                 tx = width * (1 - ratio); ty = -15;
@@ -304,12 +312,12 @@ window.DendrogramRenderer = (function () {
 
     // クラスタ数 k に対応する切断高度 cutHeight の算出
     function getCutHeight(root, k, N) {
-        if (!root || k <= 1) return root ? root.height * 1.05 : 1;
+        if (!root || k <= 1) return getRenderHeight(root) * 1.05;
 
         const heights = [];
         function collectHeights(node) {
             if (!node || node.isLeaf) return;
-            heights.push(node.height);
+            heights.push(getRenderHeight(node));
             collectHeights(node.left);
             collectHeights(node.right);
         }
@@ -337,7 +345,6 @@ window.DendrogramRenderer = (function () {
             x2 = width + 10; y2 = height * (1 - normCut);
             bx = width - 80; by = y1 - 8;
         } else {
-            // 横向き: x = width * (1 - normCut)
             x1 = width * (1 - normCut); y1 = -10;
             x2 = width * (1 - normCut); y2 = height + 10;
             bx = x1 + 8; by = 20;
@@ -376,6 +383,7 @@ window.DendrogramRenderer = (function () {
     return {
         render,
         getClusterColor,
+        getCutHeight,
         CLUSTER_COLORS
     };
 
