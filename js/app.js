@@ -779,7 +779,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 marker: { colors: pieColors },
                 textinfo: 'label+percent',
                 textfont: { size: 11 },
-                hole: 0.35
+                hole: 0.35,
+                sort: false,
+                direction: 'clockwise'
             }], {
                 margin: { t: 20, r: 30, b: 20, l: 30 },
                 showlegend: false
