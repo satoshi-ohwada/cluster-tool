@@ -19,15 +19,29 @@
 </head>
 <body>
 
+    <!-- トースト通知 -->
+    <div id="toast-container" style="position: fixed; top: 1rem; right: 1rem; z-index: 9999;"></div>
+
     <!-- Header -->
     <header>
         <div class="header-content">
             <div>
                 <h1>📊 簡易クラスタ分析ツール</h1>
-                <p class="subtitle">階層クラスタリング（ウォード法等）によるデータセグメンテーション・デンドログラム表示ツール</p>
+                <p class="subtitle">Excelデータからグループ分けを自動で行うツールです</p>
             </div>
         </div>
     </header>
+
+    <!-- セクションナビゲーション -->
+    <nav id="section-nav" class="hidden" style="position: sticky; top: 0; z-index: 100; background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 0.5rem 1.5rem; display: flex; justify-content: center; gap: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <a href="#import-section" style="font-size: 0.85rem; color: #4f46e5; text-decoration: none; font-weight: 600;">📁 データ入力</a>
+        <span style="color: #cbd5e1;">→</span>
+        <a href="#analysis-section" style="font-size: 0.85rem; color: #4f46e5; text-decoration: none; font-weight: 600;">📊 分析設定</a>
+        <span style="color: #cbd5e1;">→</span>
+        <a href="#results-section" style="font-size: 0.85rem; color: #4f46e5; text-decoration: none; font-weight: 600;">📋 結果・可視化</a>
+        <span style="color: #cbd5e1;">→</span>
+        <a href="#export-section" style="font-size: 0.85rem; color: #4f46e5; text-decoration: none; font-weight: 600;">💾 エクスポート</a>
+    </nav>
 
     <div class="container">
 
@@ -61,8 +75,8 @@
             <div style="margin-top: 1.25rem; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center;">
                 <p style="font-size: 0.88rem; font-weight: 600; margin-bottom: 0.6rem; color: var(--text-muted);">💡 すぐにお試しできるサンプルデータ：</p>
                 <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
-                    <button id="btn-sample-city" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🏢 主要都市別 ライフスタイル調査</button>
-                    <button id="btn-sample-cust" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🛒 EC顧客別 購買行動分析</button>
+                    <button id="btn-sample-city" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🏢 主要都市別 ライフスタイル調査 (30都市×6変数)</button>
+                    <button id="btn-sample-cust" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🛒 EC顧客別 購買行動分析 (35顧客×6変数)</button>
                 </div>
             </div>
 
@@ -71,7 +85,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
                     <h3>データセット・プレビュー (<span id="data-summary-badge">0 件</span>)</h3>
                     <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <label for="transform-mode" style="font-size: 0.88rem; font-weight: 600;">前処理（標準化）:</label>
+                        <label for="transform-mode" style="font-size: 0.88rem; font-weight: 600;">📐 データの単位合わせ（前処理）:</label>
                         <select id="transform-mode" class="form-select" style="width: auto; padding: 0.4rem 0.8rem;">
                             <option value="std" selected>✨ 標準化 (Z-Score) [推奨] - 単位や桁数を揃える</option>
                             <option value="minmax">📏 Min-Max 正規化 (0〜1)</option>
@@ -81,6 +95,7 @@
                         </select>
                     </div>
                 </div>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.4rem;">※ 売上（万円）と評価（5段階）のように単位や桁数が異なる変数があるときは「標準化」を選んでください。</p>
 
                 <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;">※チェックを外した変数はクラスタ分析から除外されます。</p>
                 
@@ -90,6 +105,9 @@
                         <tbody></tbody>
                     </table>
                 </div>
+
+                <!-- データ品質警告エリア -->
+                <div id="data-quality-warnings" class="hidden" style="margin-top: 1rem;"></div>
             </div>
         </section>
 
@@ -117,6 +135,13 @@
                         <option value="cosine">コサイン類似度距離 (Cosine)</option>
                     </select>
                 </div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; color: var(--text-main);">
+                    <input type="checkbox" id="exclude-outliers" class="form-check-input" style="margin: 0; width: 1.1rem; height: 1.1rem;">
+                    外れ値（極端な値）を分析から除外する
+                </label>
             </div>
 
             <!-- 初心者向け手法・距離の解説アコーディオン -->
@@ -158,9 +183,9 @@
 
             <!-- クラスタ数 k 設定スライダー -->
             <div style="margin-bottom: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="font-size: 0.95rem; font-weight: 700;">設定クラスタ数 (k):</label>
-                    <span style="font-size: 0.85rem; color: var(--text-muted);">スライダーを動かすか、デンドログラム上で切断できます</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <label style="font-size: 0.95rem; font-weight: 700;">分割するグループ数 <span style="font-size:0.8rem; color:var(--text-muted);">(専門用語: k)</span>:</label>
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">スライダーを移動して分割するグループ数（2〜10）を調整できます（ツリー上の丸印クリックでも選択可）</span>
                 </div>
                 <div class="range-slider-wrapper">
                     <span style="font-size: 0.9rem; font-weight: 600;">2</span>
@@ -179,6 +204,9 @@
                     </button>
                     <button id="btn-download-svg" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.8rem;">
                         🖼️ SVG 画像保存
+                    </button>
+                    <button id="btn-download-png" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.8rem;">
+                        📷 PNG 画像保存
                     </button>
                 </div>
             </div>
@@ -207,6 +235,9 @@
                     </table>
                 </div>
 
+                <!-- クラスタ構成比チャート -->
+                <div id="cluster-pie-chart" style="width: 100%; max-width: 400px; height: 280px; margin: 1rem auto;"></div>
+
                 <!-- 要約統計テーブルの図解説ナラティブボックス -->
                 <div id="narrative-summary-table" class="narrative-box"></div>
             </div>
@@ -215,7 +246,10 @@
             <div class="grid-2col" style="margin-bottom: 2rem;">
                 <!-- レーダーチャート -->
                 <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; display: flex; flex-direction: column;">
-                    <h3 style="margin-top: 0;">各クラスタの標準化特徴プロファイル</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0;">
+                        <h3 style="margin-top: 0;">各グループの特徴比較チャート</h3>
+                        <button class="btn-chart-save btn btn-outline" data-chart="radar-chart" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📷 画像保存</button>
+                    </div>
                     <div id="radar-chart" style="width: 100%; height: 350px;"></div>
                     <!-- レーダーチャートの図解説ナラティブボックス -->
                     <div id="narrative-radar" class="narrative-box" style="margin-top: auto;"></div>
@@ -223,7 +257,10 @@
 
                 <!-- 2D PCA マップ -->
                 <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; display: flex; flex-direction: column;">
-                    <h3 style="margin-top: 0;">2D PCA 分布 & クラスタ境界</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0;">
+                        <h3 style="margin-top: 0;">グループ分布マップ（主成分分析による2次元表示）</h3>
+                        <button class="btn-chart-save btn btn-outline" data-chart="pca-scatter-chart" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📷 画像保存</button>
+                    </div>
                     <div id="pca-scatter-chart" style="width: 100%; height: 350px;"></div>
                     <!-- 2D PCAマップの図解説ナラティブボックス -->
                     <div id="narrative-pca" class="narrative-box" style="margin-top: auto;"></div>
@@ -262,6 +299,12 @@
                 </button>
             </div>
         </section>
+
+        <!-- フッター -->
+        <footer style="text-align: center; padding: 2rem 1rem; margin-top: 1rem; font-size: 0.8rem; color: #94a3b8;">
+            <p>簡易クラスタ分析ツール v1.0 | 最終更新: 2026年8月</p>
+            <p style="margin-top: 0.25rem;">すべての処理はブラウザ内で完結します。データがサーバーに送信されることはありません。</p>
+        </footer>
 
     </div>
 

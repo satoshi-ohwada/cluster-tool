@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
         distanceMetric: 'euclidean',
         currentK: 3,
         orientation: 'vertical',
+        previewLimit: 15,
+        excludeOutliers: false,
+        originalRawDataMatrix: [],
+        originalSampleNames: [],
         
         // 分析結果キャッシュ
         preprocessed: null,       // { normalized, stats }
@@ -24,6 +28,57 @@ document.addEventListener('DOMContentLoaded', () => {
         silhouetteInfo: null,     // { meanScore, sampleScores }
         recommendInfo: null       // { recommendedK, silhouetteScores, reason }
     };
+
+    // --- ユーティリティ ---
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(() => { toast.remove(); }, 3000);
+    }
+
+    function showDataWarning(message) {
+        const container = document.getElementById('data-quality-warnings');
+        if (!container) return;
+        container.classList.remove('hidden');
+        container.innerHTML += `<div class="data-warning"><span class="data-warning-icon">⚠️</span><span>${message}</span></div>`;
+    }
+
+    function clearDataWarnings() {
+        const container = document.getElementById('data-quality-warnings');
+        if (container) {
+            container.innerHTML = '';
+            container.classList.add('hidden');
+        }
+    }
+
+    // クラスタ自動命名生成 (4-1)
+    function generateClusterLabel(cluster, activeFeatureNames, overallMeans) {
+        const count = cluster.samples.length;
+        const diffs = activeFeatureNames.map((fName, fIdx) => {
+            const sum = cluster.samples.reduce((s, sIdx) => s + state.rawDataMatrix[sIdx][state.selectedFeatureIndices[fIdx]], 0);
+            const mean = sum / count;
+            const overallM = overallMeans[fIdx];
+            const pct = overallM !== 0 ? ((mean - overallM) / Math.abs(overallM)) * 100 : 0;
+            return { fName, pct };
+        });
+        diffs.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+        
+        const top1 = diffs[0];
+        const top2 = diffs[1];
+        
+        if (!top1 || Math.abs(top1.pct) < 10) return '標準型';
+        
+        const desc1 = top1.pct > 0 ? `高${top1.fName}` : `低${top1.fName}`;
+        if (top2 && Math.abs(top2.pct) > 10) {
+            const desc2 = top2.pct > 0 ? `高${top2.fName}` : `低${top2.fName}`;
+            return `${desc1}・${desc2}型`;
+        }
+        return `${desc1}型`;
+    }
 
     // --- DOM要素の参照 ---
     const dropZone = document.getElementById('drop-zone');
@@ -142,6 +197,34 @@ document.addEventListener('DOMContentLoaded', () => {
         // エクスポートボタン
         btnExportExcel.addEventListener('click', exportToExcel);
         btnExportCsv.addEventListener('click', exportToCsv);
+
+        // (5-1) PNGダウンロード
+        const btnDownloadPng = document.getElementById('btn-download-png');
+        if (btnDownloadPng) btnDownloadPng.addEventListener('click', downloadDendrogramPng);
+
+        // (5-2) チャート画像保存
+        document.querySelectorAll('.btn-chart-save').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const chartId = e.target.dataset.chart;
+                if (chartId) downloadChartImage(chartId);
+            });
+        });
+
+        // 外れ値除外トグル
+        const chkExcludeOutliers = document.getElementById('exclude-outliers');
+        if (chkExcludeOutliers) {
+            chkExcludeOutliers.addEventListener('change', (e) => {
+                state.excludeOutliers = e.target.checked;
+                applyDataFilters();
+                renderPreviewTable();
+                runPipeline();
+                if (state.excludeOutliers) {
+                    showToast('外れ値を除外して再分析しました', 'success');
+                } else {
+                    showToast('外れ値を含めて再分析しました', 'info');
+                }
+            });
+        }
     }
 
     // --- ファイル読み込み処理 ---
@@ -188,17 +271,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 行データのパースとデータ構造構築 ---
     function processRawRows(rawRows) {
+        clearDataWarnings();
+
         if (!rawRows || rawRows.length < 2) {
-            alert('データが少なすぎるか、形式が不正です。ヘッダー行と少なくとも1行の数値データが必要です。');
+            alert('データが少なすぎるか、形式が不正です。\nヘッダー行と少なくとも1行の数値データが必要です。');
             return;
         }
 
         const headerRow = rawRows[0].map(h => (h !== undefined && h !== null ? String(h).trim() : ''));
         
-        // 1列目をサンプル名ラベルとして使用
         state.featureNames = headerRow.slice(1);
         state.sampleNames = [];
         state.rawDataMatrix = [];
+
+        // 欠損値・非数値セルの検出カウンター
+        const nanCountPerCol = new Array(state.featureNames.length).fill(0);
+        const emptyCountPerCol = new Array(state.featureNames.length).fill(0);
 
         for (let i = 1; i < rawRows.length; i++) {
             const row = rawRows[i];
@@ -209,15 +297,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 : `Sample ${i}`;
 
             const numRow = [];
-            let isValid = true;
-
-            for (let j = 1; j < row.length; j++) {
-                const val = parseFloat(row[j]);
-                if (isNaN(val)) {
-                    numRow.push(0); // NaN fallback
+            for (let j = 1; j < row.length && j <= state.featureNames.length; j++) {
+                const rawVal = row[j];
+                const colIdx = j - 1;
+                if (rawVal === undefined || rawVal === null || String(rawVal).trim() === '') {
+                    emptyCountPerCol[colIdx]++;
+                    numRow.push(NaN);
                 } else {
-                    numRow.push(val);
+                    const val = parseFloat(rawVal);
+                    if (isNaN(val)) {
+                        nanCountPerCol[colIdx]++;
+                        numRow.push(NaN);
+                    } else {
+                        numRow.push(val);
+                    }
                 }
+            }
+
+            // 列数がヘッダーより短い場合、欠損として埋める
+            while (numRow.length < state.featureNames.length) {
+                emptyCountPerCol[numRow.length]++;
+                numRow.push(NaN);
             }
 
             if (numRow.length > 0) {
@@ -226,8 +326,72 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // (1-3) データ件数・変数数のバリデーション
+        if (state.sampleNames.length < 3) {
+            alert(`クラスタ分析には少なくとも3件以上のデータが必要です。\n現在のデータ件数: ${state.sampleNames.length}件`);
+            return;
+        }
+        if (state.featureNames.length < 2) {
+            alert(`クラスタ分析には少なくとも2つ以上の数値変数（列）が必要です。\n現在の変数数: ${state.featureNames.length}列`);
+            return;
+        }
+
+        // (1-1) 非数値セルの警告
+        const nonNumericCols = [];
+        nanCountPerCol.forEach((cnt, idx) => {
+            if (cnt > 0) nonNumericCols.push({ name: state.featureNames[idx], count: cnt, idx });
+        });
+        if (nonNumericCols.length > 0) {
+            const msgs = nonNumericCols.map(c => `「${c.name}」に数値に変換できないデータが ${c.count} 件あります`);
+            showDataWarning(msgs.join('。') + '。該当セルは 0 として処理されます。必要に応じてこの列のチェックを外してください。');
+        }
+
+        // (6-3) 欠損値の警告
+        const emptyCols = [];
+        emptyCountPerCol.forEach((cnt, idx) => {
+            if (cnt > 0) emptyCols.push({ name: state.featureNames[idx], count: cnt, idx });
+        });
+        if (emptyCols.length > 0) {
+            const msgs = emptyCols.map(c => `「${c.name}」に空白セルが ${c.count} 件あります`);
+            showDataWarning(msgs.join('。') + '。空白セルは 0 として補完されます。');
+        }
+
+        // NaN を 0 で補完 (6-3 デフォルト動作)
+        for (let i = 0; i < state.rawDataMatrix.length; i++) {
+            for (let j = 0; j < state.rawDataMatrix[i].length; j++) {
+                if (isNaN(state.rawDataMatrix[i][j])) {
+                    state.rawDataMatrix[i][j] = 0;
+                }
+            }
+        }
+
         // 初期選択変数は全列
         state.selectedFeatureIndices = state.featureNames.map((_, idx) => idx);
+
+        // (1-2) 分散ゼロ列の自動除外
+        const zeroVarianceCols = [];
+        state.selectedFeatureIndices = state.selectedFeatureIndices.filter(idx => {
+            const values = state.rawDataMatrix.map(row => row[idx]);
+            const unique = new Set(values);
+            if (unique.size <= 1) {
+                zeroVarianceCols.push(state.featureNames[idx]);
+                return false;
+            }
+            return true;
+        });
+        if (zeroVarianceCols.length > 0) {
+            showDataWarning(`列「${zeroVarianceCols.join('、')}」は全サンプルで同一の値のため、分析から自動的に除外しました。`);
+        }
+
+        // (1-3) 選択変数数再チェック
+        if (state.selectedFeatureIndices.length < 2) {
+            alert(`分析可能な数値変数が 2 列未満です。\nデータの内容を確認してください。`);
+            return;
+        }
+
+        // --- ここでクレンジング済みデータをオリジナルとして保存 ---
+        state.originalSampleNames = [...state.sampleNames];
+        state.originalRawDataMatrix = state.rawDataMatrix.map(r => [...r]);
         
         // UI表示の切り替え
         previewContainer.classList.remove('hidden');
@@ -235,8 +399,108 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsSection.classList.remove('hidden');
         exportSection.classList.remove('hidden');
 
+        // (3-3) ナビゲーション表示
+        const sectionNav = document.getElementById('section-nav');
+        if (sectionNav) sectionNav.classList.remove('hidden');
+
+        // (8-5) タイトル動的更新
+        document.title = `簡易クラスタ分析ツール — ${state.sampleNames.length}件×${state.featureNames.length}変数`;
+
+        // (6-1) 変数間相関チェック
+        checkHighCorrelation();
+
+        // (6-2) 外れ値検出
+        checkOutliers();
+
+        applyDataFilters();
         renderPreviewTable();
         runPipeline();
+        showToast(`✅ ${state.sampleNames.length}件 × ${state.selectedFeatureIndices.length}変数のデータを読み込みました`, 'success');
+    }
+
+    // --- (6-1) 変数間高相関チェック ---
+    function checkHighCorrelation() {
+        const indices = state.selectedFeatureIndices;
+        const N = state.rawDataMatrix.length;
+        if (N < 3 || indices.length < 2) return;
+
+        for (let a = 0; a < indices.length; a++) {
+            for (let b = a + 1; b < indices.length; b++) {
+                const idxA = indices[a], idxB = indices[b];
+                const valsA = state.rawDataMatrix.map(r => r[idxA]);
+                const valsB = state.rawDataMatrix.map(r => r[idxB]);
+                const meanA = valsA.reduce((s, v) => s + v, 0) / N;
+                const meanB = valsB.reduce((s, v) => s + v, 0) / N;
+                let cov = 0, varA = 0, varB = 0;
+                for (let i = 0; i < N; i++) {
+                    const dA = valsA[i] - meanA, dB = valsB[i] - meanB;
+                    cov += dA * dB;
+                    varA += dA * dA;
+                    varB += dB * dB;
+                }
+                const r = (varA > 0 && varB > 0) ? cov / Math.sqrt(varA * varB) : 0;
+                if (Math.abs(r) > 0.95) {
+                    showDataWarning(`「${state.featureNames[idxA]}」と「${state.featureNames[idxB]}」は非常に似た情報を含んでいます（相関係数 r=${r.toFixed(2)}）。片方を除外すると結果が改善する場合があります。`);
+                }
+            }
+        }
+    }
+
+    // --- (6-2) 外れ値検出 ---
+    function checkOutliers() {
+        const indices = state.selectedFeatureIndices;
+        const N = state.rawDataMatrix.length;
+        if (N < 5) return;
+
+        indices.forEach(fIdx => {
+            const values = state.rawDataMatrix.map(r => r[fIdx]);
+            const mean = values.reduce((s, v) => s + v, 0) / N;
+            const stdDev = Math.sqrt(values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (N - 1));
+            if (stdDev === 0) return;
+
+            const outlierSamples = [];
+            values.forEach((v, i) => {
+                const z = Math.abs((v - mean) / stdDev);
+                if (z > 3) outlierSamples.push(state.sampleNames[i]);
+            });
+
+            if (outlierSamples.length > 0) {
+                showDataWarning(`「${state.featureNames[fIdx]}」に極端な値（外れ値）が ${outlierSamples.length} 件あります（${outlierSamples.slice(0, 3).join('、')}${outlierSamples.length > 3 ? ' 他' : ''}）。結果に影響する可能性があります。`);
+            }
+        });
+    }
+
+    // --- データフィルタリング ---
+    function applyDataFilters() {
+        if (!state.originalRawDataMatrix || state.originalRawDataMatrix.length === 0) return;
+        
+        state.sampleNames = [...state.originalSampleNames];
+        state.rawDataMatrix = state.originalRawDataMatrix.map(r => [...r]);
+
+        if (state.excludeOutliers) {
+            const indices = state.selectedFeatureIndices;
+            const N = state.rawDataMatrix.length;
+            const outlierIndices = new Set();
+            
+            indices.forEach(fIdx => {
+                const values = state.rawDataMatrix.map(r => r[fIdx]);
+                const mean = values.reduce((s, v) => s + v, 0) / N;
+                const stdDev = Math.sqrt(values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (N - 1));
+                if (stdDev === 0) return;
+
+                values.forEach((v, i) => {
+                    const z = Math.abs((v - mean) / stdDev);
+                    if (z > 3) outlierIndices.add(i);
+                });
+            });
+
+            if (outlierIndices.size > 0) {
+                const keepIndices = [];
+                for(let i = 0; i < N; i++) if(!outlierIndices.has(i)) keepIndices.push(i);
+                state.rawDataMatrix = keepIndices.map(i => state.rawDataMatrix[i]);
+                state.sampleNames = keepIndices.map(i => state.sampleNames[i]);
+            }
+        }
     }
 
     // --- プレビューテーブルの描画 ---
@@ -244,7 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dataSummaryBadge.textContent = `${state.sampleNames.length} サンプル × ${state.featureNames.length} 変数`;
 
         // Thead
-        let theadHtml = '<tr><th style="width: 40px; text-align: center;">分析</th><th>サンプル名</th>';
+        let theadHtml = '<tr><th style="width: 40px; text-align: center;" title="チェックを外すとこの変数をクラスタ分析に使用しません">使用</th><th>サンプル名</th>';
         state.featureNames.forEach((fName, idx) => {
             const isChecked = state.selectedFeatureIndices.includes(idx);
             theadHtml += `
@@ -260,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Tbody (先頭 15 件を表示)
         let tbodyHtml = '';
-        const limit = Math.min(15, state.sampleNames.length);
+        const limit = Math.min(state.previewLimit || 15, state.sampleNames.length);
         for (let i = 0; i < limit; i++) {
             tbodyHtml += `<tr><td style="text-align: center; color: var(--text-muted);">${i + 1}</td><td style="font-weight: 600;">${state.sampleNames[i]}</td>`;
             state.featureNames.forEach((_, j) => {
@@ -269,8 +533,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             tbodyHtml += '</tr>';
         }
-        if (state.sampleNames.length > 15) {
-            tbodyHtml += `<tr><td colspan="${state.featureNames.length + 2}" style="text-align: center; color: var(--text-muted); font-style: italic; background: #fafafa;">... 他 ${state.sampleNames.length - 15} 件のサンプルは省略されています ...</td></tr>`;
+        if (state.sampleNames.length > limit) {
+            const remaining = state.sampleNames.length - limit;
+            tbodyHtml += `<tr><td colspan="${state.featureNames.length + 2}" style="text-align: center; color: var(--text-muted); font-style: italic; background: #fafafa;">... 他 ${remaining} 件のサンプルは省略されています <button onclick="window._expandPreview()" style="margin-left: 0.5rem; font-size: 0.82rem; color: #4f46e5; background: none; border: 1px solid #4f46e5; border-radius: 4px; padding: 0.15rem 0.6rem; cursor: pointer;">▼ さらに表示</button></td></tr>`;
         }
         previewTable.querySelector('tbody').innerHTML = tbodyHtml;
 
@@ -284,13 +549,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     state.selectedFeatureIndices = state.selectedFeatureIndices.filter(idx => idx !== fIdx);
                 }
                 state.selectedFeatureIndices.sort((a, b) => a - b);
+                applyDataFilters();
+                renderPreviewTable();
                 runPipeline();
             });
         });
     }
 
+    // (3-4) プレビュー拡張
+    window._expandPreview = function() {
+        state.previewLimit = (state.previewLimit || 15) + 20;
+        renderPreviewTable();
+    };
+
     // --- メイン分析パイプラインの実行 ---
     function runPipeline() {
+        // (7-1) 大規模データ警告
+        if (state.rawDataMatrix.length > 200) {
+            showToast('データ件数が多いため分析に数秒かかる場合があります...', 'warning');
+        }
+        
         if (state.rawDataMatrix.length === 0 || state.selectedFeatureIndices.length === 0) return;
 
         // 1. 選択された変数のみを抽出した部分行列
@@ -316,6 +594,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 推奨カードの更新
         recommendText.innerHTML = state.recommendInfo.reason;
+
+        // (2-3) 用語平易化
+        recommendText.innerHTML = recommendText.innerHTML.replace('シルエット係数', '分類の整合性スコア（シルエット係数）');
+
+        // (4-3) シルエットスコアゲージ
+        const silScore = state.recommendInfo.maxSilhouette || 0;
+        const silPct = Math.max(0, Math.min(100, silScore * 100));
+        let silColor = '#ef4444'; // red
+        let silLabel = '境界が曖昧';
+        if (silScore > 0.5) { silColor = '#10b981'; silLabel = '非常に綺麗に分かれている'; }
+        else if (silScore > 0.25) { silColor = '#f59e0b'; silLabel = 'ある程度分かれている'; }
+
+        recommendText.innerHTML += `
+            <div class="silhouette-gauge">
+                <span style="font-size: 0.82rem; color: #64748b;">分類の整合性:</span>
+                <div class="silhouette-gauge-bar">
+                    <div class="silhouette-gauge-fill" style="width: ${silPct}%; background-color: ${silColor};"></div>
+                </div>
+                <span class="silhouette-gauge-label" style="color: ${silColor};">${silScore.toFixed(2)} - ${silLabel}</span>
+            </div>`;
+
         recKVal.textContent = state.recommendInfo.recommendedK;
 
         // kスライダー範囲調整
@@ -363,6 +662,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 各グラフの文章解説（ナラティブ）生成
         renderNarratives();
+
+        showToast('✅ 分析結果が更新されました', 'success');
+
+        // (7-2) N>100件時の横表示推奨
+        if (state.sampleNames.length > 100 && state.orientation === 'vertical') {
+            showToast('💡 データが100件を超えています。横向き表示が推奨です', 'info');
+        }
     }
 
     // --- デンドログラム描画 ---
@@ -397,6 +703,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return sum / N;
         });
 
+        // (4-1) クラスタ自動命名ラベルの生成
+        const clusterLabels = {};
+        state.clusters.forEach(cluster => {
+            clusterLabels[cluster.id] = generateClusterLabel(cluster, activeFeatureNames, overallMeans);
+        });
+        state.clusterLabels = clusterLabels;
+
         // Thead
         let theadHtml = `<tr><th>クラスタID</th><th>件数 (構成比)</th>`;
         activeFeatureNames.forEach(fName => {
@@ -421,9 +734,9 @@ document.addEventListener('DOMContentLoaded', () => {
             tbodyHtml += `<tr>
                 <td style="font-weight: 700; color: ${cColor}; display: flex; align-items: center; gap: 0.4rem;">
                     <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: ${cColor};"></span>
-                    クラスタ ${cluster.id}
+                    クラスタ ${cluster.id} <span class="cluster-auto-label" style="background-color: ${cColor}15; color: ${cColor};">${clusterLabels[cluster.id]}</span>
                 </td>
-                <td><b>${count}</b> 件 (${ratio}%)</td>`;
+                <td><b>${count}</b> 件 (${ratio}%) <button class="cluster-members-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')">▶ メンバー一覧</button><div class="cluster-members-list hidden">${cluster.samples.map(sIdx => state.sampleNames[sIdx]).join('、')}</div></td>`;
 
             clusterMeans.forEach((mVal, fIdx) => {
                 const overallM = overallMeans[fIdx];
@@ -452,6 +765,26 @@ document.addEventListener('DOMContentLoaded', () => {
         tbodyHtml += '</tr>';
 
         clusterSummaryTable.querySelector('tbody').innerHTML = tbodyHtml;
+
+        // (4-2) クラスタ構成比パイチャート
+        const pieLabels = state.clusters.map(c => `クラスタ ${c.id}`);
+        const pieValues = state.clusters.map(c => c.samples.length);
+        const pieColors = state.clusters.map(c => window.DendrogramRenderer.getClusterColor(c.id));
+        const pieChart = document.getElementById('cluster-pie-chart');
+        if (pieChart) {
+            Plotly.newPlot('cluster-pie-chart', [{
+                type: 'pie',
+                labels: pieLabels,
+                values: pieValues,
+                marker: { colors: pieColors },
+                textinfo: 'label+percent',
+                textfont: { size: 11 },
+                hole: 0.35
+            }], {
+                margin: { t: 20, r: 30, b: 20, l: 30 },
+                showlegend: false
+            }, { responsive: true, displayModeBar: false });
+        }
     }
 
     // --- レーダーチャート描画 ---
@@ -487,10 +820,10 @@ document.addEventListener('DOMContentLoaded', () => {
             polar: {
                 radialaxis: {
                     visible: true,
-                    range: [-2.5, 2.5]
+                    range: [Math.min(-1.5, ...traces.flatMap(t => t.r)) - 0.5, Math.max(1.5, ...traces.flatMap(t => t.r)) + 0.5]
                 }
             },
-            margin: { t: 30, r: 40, b: 30, l: 40 },
+            margin: { t: 40, r: 90, b: 40, l: 90 },
             showlegend: true,
             legend: { orientation: 'h', y: -0.15 }
         };
@@ -693,7 +1026,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const cColor = window.DendrogramRenderer.getClusterColor(cId);
 
-            html += `<li><span style="font-weight:700; color:${cColor}">クラスタ ${cId}</span> (${count}件 / ${ratio}%): ${traitDesc}</li>`;
+            const autoLabel = state.clusterLabels ? (state.clusterLabels[cId] || '') : '';
+            html += `<li><span style="font-weight:700; color:${cColor}">クラスタ ${cId}「${autoLabel}」</span> (${count}件 / ${ratio}%): ${traitDesc}</li>`;
         });
 
         html += `</ul>`;
@@ -746,6 +1080,58 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.removeChild(a);
     }
 
+    // --- (5-1) デンドログラム PNG ダウンロード ---
+    function downloadDendrogramPng() {
+        const svgEl = dendrogramContainer.querySelector('svg');
+        if (!svgEl) return;
+        const serializer = new XMLSerializer();
+        const source = serializer.serializeToString(svgEl);
+        const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const w = parseFloat(svgEl.getAttribute('width'));
+            const h = parseFloat(svgEl.getAttribute('height'));
+            
+            // キャンバス上限対策（ブラウザの描画限界 8000px を超過しないようにスケール調整）
+            let scale = 2;
+            if (h * scale > 8000) scale = 8000 / h;
+            if (w * scale > 8000) scale = Math.min(scale, 8000 / w);
+            if (scale < 0.5) scale = 0.5;
+
+            canvas.width = w * scale;
+            canvas.height = h * scale;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            URL.revokeObjectURL(url);
+            canvas.toBlob(function(blob) {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `dendrogram_k${state.currentK}_${state.linkageMethod}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }, 'image/png');
+        };
+        img.src = url;
+    }
+
+    // --- (5-2) Plotlyチャート画像保存 ---
+    function downloadChartImage(chartId) {
+        const chartEl = document.getElementById(chartId);
+        if (!chartEl) return;
+        Plotly.downloadImage(chartEl, {
+            format: 'png',
+            width: 800,
+            height: 600,
+            filename: `${chartId}_k${state.currentK}`
+        });
+    }
+
     // --- エクセル出力 (.xlsx) ---
     function exportToExcel() {
         if (!state.assignments || state.assignments.length === 0) return;
@@ -790,7 +1176,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ["前処理 (Preprocessing)", state.transformMode],
             ["設定クラスタ数 (k)", state.currentK],
             ["自動推奨クラスタ数", state.recommendInfo.recommendedK],
-            ["平均シルエット係数", state.silhouetteInfo ? state.silhouetteInfo.meanScore.toFixed(3) : "N/A"]
+            ["分類の整合性スコア（シルエット係数）", state.silhouetteInfo ? state.silhouetteInfo.meanScore.toFixed(3) : "N/A"]
         ];
         const ws3 = XLSX.utils.aoa_to_sheet(sheet3Data);
         XLSX.utils.book_append_sheet(wb, ws3, "分析設定とメタ情報");

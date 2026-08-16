@@ -38,6 +38,24 @@ window.DendrogramRenderer = (function () {
     }
 
     /**
+     * クリックされた結合ノードの高さに対応するクラスタ数 k (2〜10) を算出する関数
+     */
+    function calculateKForNode(rootNode, targetNode) {
+        if (!rootNode || !targetNode) return 3;
+        const heights = [];
+        function collect(n) {
+            if (!n || n.isLeaf) return;
+            heights.push(n.height);
+            collect(n.left);
+            collect(n.right);
+        }
+        collect(rootNode);
+        heights.sort((a, b) => b - a);
+        const countAbove = heights.filter(h => h > targetNode.height).length;
+        return Math.min(10, Math.max(2, countAbove + 1));
+    }
+
+    /**
      * デンドログラムを描画する関数
      */
     function render(container, clusteringResult, sampleLabels, currentK, assignments, options = {}) {
@@ -49,10 +67,17 @@ window.DendrogramRenderer = (function () {
 
         container.innerHTML = '';
 
+        // 最大ラベル長から右マージンを動的に計算 (文字の長さを考慮して見切れを防止)
+        let maxLabelLen = 10;
+        if (sampleLabels && sampleLabels.length > 0) {
+            maxLabelLen = Math.max(...sampleLabels.map(l => (l || '').toString().length));
+        }
+        const dynamicRightMargin = Math.max(120, maxLabelLen * 7.5 + 20);
+
         // マージン設定 (横向き表示時は右側に十分なラベル領域を確保)
         const margin = orientation === 'vertical'
-            ? { top: 40, right: 40, bottom: 130, left: 60 }
-            : { top: 40, right: 180, bottom: 30, left: 60 };
+            ? { top: 40, right: 40, bottom: Math.max(130, dynamicRightMargin), left: 60 }
+            : { top: 40, right: dynamicRightMargin, bottom: 30, left: 60 };
 
         // コンテナの寸法（サンプル数 N に応じて可変拡大し重なりを防止）
         const calcWidth = orientation === 'vertical'
@@ -220,11 +245,18 @@ window.DendrogramRenderer = (function () {
                 circle.setAttribute('stroke-width', '1.5');
                 circle.style.cursor = 'pointer';
 
-                // ツールチップ設定 (逆転現象の検知)
+                // ツールチップ設定 (逆転現象の検知とクリック切断用 K 算出)
                 const isReversal = lNode.left && lNode.right && (lNode.node.height < getRenderHeight(lNode.left.node) || lNode.node.height < getRenderHeight(lNode.right.node));
+                const calculatedK = calculateKForNode(root, lNode.node);
+
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-                title.textContent = `結合高さ: ${lNode.node.height.toFixed(3)}${isReversal ? ' (※重心法による逆転現象)' : ''}\n構成サンプル数: ${lNode.node.size} 件`;
+                title.textContent = `結合高さ: ${lNode.node.height.toFixed(3)}${isReversal ? ' (※重心法による逆転現象)' : ''}\n構成サンプル数: ${lNode.node.size} 件\n👉 クリックして クラスタ数 k=${calculatedK} に指定`;
                 circle.appendChild(title);
+
+                circle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (onSelectK) onSelectK(calculatedK);
+                });
 
                 nodeGroup.appendChild(circle);
 
