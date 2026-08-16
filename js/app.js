@@ -351,9 +351,10 @@ document.addEventListener('DOMContentLoaded', () => {
         emptyCountPerCol.forEach((cnt, idx) => {
             if (cnt > 0) emptyCols.push({ name: state.featureNames[idx], count: cnt, idx });
         });
+        state.initialWarnings = [];
         if (emptyCols.length > 0) {
             const msgs = emptyCols.map(c => `「${c.name}」に空白セルが ${c.count} 件あります`);
-            showDataWarning(msgs.join('。') + '。空白セルは 0 として補完されます。');
+            state.initialWarnings.push(msgs.join('。') + '。空白セルは 0 として補完されます。');
         }
 
         // NaN を 0 で補完 (6-3 デフォルト動作)
@@ -380,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return true;
         });
         if (zeroVarianceCols.length > 0) {
-            showDataWarning(`列「${zeroVarianceCols.join('、')}」は全サンプルで同一の値のため、分析から自動的に除外しました。`);
+            state.initialWarnings.push(`列「${zeroVarianceCols.join('、')}」は全サンプルで同一の値のため、分析から自動的に除外しました。`);
         }
 
         // (1-3) 選択変数数再チェック
@@ -403,14 +404,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const sectionNav = document.getElementById('section-nav');
         if (sectionNav) sectionNav.classList.remove('hidden');
 
-        // (8-5) タイトル動的更新
+        // タイトル動的更新
         document.title = `簡易クラスタ分析ツール — ${state.sampleNames.length}件×${state.featureNames.length}変数`;
-
-        // (6-1) 変数間相関チェック
-        checkHighCorrelation();
-
-        // (6-2) 外れ値検出
-        checkOutliers();
 
         applyDataFilters();
         renderPreviewTable();
@@ -477,6 +472,21 @@ document.addEventListener('DOMContentLoaded', () => {
         state.sampleNames = [...state.originalSampleNames];
         state.rawDataMatrix = state.originalRawDataMatrix.map(r => [...r]);
 
+        // 除外サンプルの適用
+        if (state.excludedSampleNames && state.excludedSampleNames.size > 0) {
+            const keepIndices = [];
+            for (let i = 0; i < state.sampleNames.length; i++) {
+                if (!state.excludedSampleNames.has(state.sampleNames[i])) {
+                    keepIndices.push(i);
+                }
+            }
+            // すべて除外されてしまうのを防ぐ（最低3件は残す）
+            if (keepIndices.length >= 3) {
+                state.rawDataMatrix = keepIndices.map(i => state.rawDataMatrix[i]);
+                state.sampleNames = keepIndices.map(i => state.sampleNames[i]);
+            }
+        }
+
         if (state.excludeOutliers) {
             const indices = state.selectedFeatureIndices;
             const N = state.rawDataMatrix.length;
@@ -524,17 +534,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Tbody (先頭 15 件を表示)
         let tbodyHtml = '';
-        const limit = Math.min(state.previewLimit || 15, state.sampleNames.length);
+        const totalOriginal = state.originalSampleNames.length;
+        const limit = Math.min(state.previewLimit || 15, totalOriginal);
+        const activeSamples = new Set(state.sampleNames);
+        const excludedSet = state.excludedSampleNames || new Set();
+
         for (let i = 0; i < limit; i++) {
-            tbodyHtml += `<tr><td style="text-align: center; color: var(--text-muted);">${i + 1}</td><td style="font-weight: 600;">${state.sampleNames[i]}</td>`;
+            const sName = state.originalSampleNames[i];
+            const isManuallyExcluded = excludedSet.has(sName);
+            const isActive = activeSamples.has(sName);
+            
+            const rowStyle = isActive ? '' : 'opacity: 0.5; background-color: #f8fafc;';
+            const checkboxHtml = `<input type="checkbox" class="sample-checkbox" data-name="${sName}" ${!isManuallyExcluded ? 'checked' : ''} title="チェックを外すとこのサンプルを除外します">`;
+
+            tbodyHtml += `<tr style="${rowStyle}">
+                <td style="text-align: center;">${checkboxHtml}</td>
+                <td style="font-weight: 600;">${sName}</td>`;
             state.featureNames.forEach((_, j) => {
-                const val = state.rawDataMatrix[i][j];
+                const val = state.originalRawDataMatrix[i][j];
                 tbodyHtml += `<td style="text-align: right;">${typeof val === 'number' ? val.toLocaleString() : val}</td>`;
             });
             tbodyHtml += '</tr>';
         }
-        if (state.sampleNames.length > limit) {
-            const remaining = state.sampleNames.length - limit;
+        if (totalOriginal > limit) {
+            const remaining = totalOriginal - limit;
             tbodyHtml += `<tr><td colspan="${state.featureNames.length + 2}" style="text-align: center; color: var(--text-muted); font-style: italic; background: #fafafa;">... 他 ${remaining} 件のサンプルは省略されています <button onclick="window._expandPreview()" style="margin-left: 0.5rem; font-size: 0.82rem; color: #4f46e5; background: none; border: 1px solid #4f46e5; border-radius: 4px; padding: 0.15rem 0.6rem; cursor: pointer;">▼ さらに表示</button></td></tr>`;
         }
         previewTable.querySelector('tbody').innerHTML = tbodyHtml;
@@ -554,6 +577,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 runPipeline();
             });
         });
+
+        previewTable.querySelectorAll('.sample-checkbox').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const sName = e.target.dataset.name;
+                if (!state.excludedSampleNames) state.excludedSampleNames = new Set();
+                
+                if (e.target.checked) {
+                    state.excludedSampleNames.delete(sName);
+                } else {
+                    state.excludedSampleNames.add(sName);
+                }
+                
+                applyDataFilters();
+                renderPreviewTable();
+                runPipeline();
+            });
+        });
     }
 
     // (3-4) プレビュー拡張
@@ -564,6 +604,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- メイン分析パイプラインの実行 ---
     function runPipeline() {
+        const warningsDiv = document.getElementById('data-quality-warnings');
+        if (warningsDiv) {
+            warningsDiv.innerHTML = '';
+            warningsDiv.classList.add('hidden');
+        }
+        
+        if (state.initialWarnings) {
+            state.initialWarnings.forEach(w => showDataWarning(w));
+        }
+
+        checkHighCorrelation();
+        if (!state.excludeOutliers) {
+            checkOutliers();
+        }
+
         // (7-1) 大規模データ警告
         if (state.rawDataMatrix.length > 200) {
             showToast('データ件数が多いため分析に数秒かかる場合があります...', 'warning');
