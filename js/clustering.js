@@ -1,12 +1,14 @@
 /**
- * 簡易クラスタ分析ツール (Hierarchical Cluster Analysis Engine)
- * 完全にクライアントサイドで動作する階層クラスタリングライブラリ
+ * 簡易クラスター分析ツール (Hierarchical Cluster Analysis Engine)
+ * 完全にクライアントサイドで動作する階層クラスターリングライブラリ
  */
 
 window.ClusterEngine = (function () {
 
     // --- 前処理（標準化・正規化） ---
     function preprocessData(matrix, mode) {
+
+
         if (!matrix || matrix.length === 0) return { normalized: [], stats: [] };
         const numRows = matrix.length;
         const numCols = matrix[0].length;
@@ -65,6 +67,8 @@ window.ClusterEngine = (function () {
             normalized.push(row);
         }
 
+
+
         return { normalized, stats: colStats };
     }
 
@@ -106,7 +110,7 @@ window.ClusterEngine = (function () {
         return Math.sqrt(sum);
     }
 
-    // --- 階層クラスタリング構築アルゴリズム ---
+    // --- 階層クラスターリング構築アルゴリズム ---
     function performHierarchicalClustering(dataMatrix, linkageMethod = 'ward', distanceMetric = 'euclidean') {
         const N = dataMatrix.length;
         if (N === 0) return null;
@@ -138,7 +142,7 @@ window.ClusterEngine = (function () {
             }
         }
 
-        // アクティブなクラスタの管理
+        // アクティブなクラスターの管理
         const activeClusters = new Set(nodes.map(n => n.id));
         const clusterMap = new Map(nodes.map(n => [n.id, n]));
         
@@ -248,6 +252,8 @@ window.ClusterEngine = (function () {
         const rootId = Array.from(activeClusters)[0];
         const root = clusterMap.get(rootId);
 
+
+
         return {
             root,
             mergeHistory,
@@ -263,9 +269,11 @@ window.ClusterEngine = (function () {
         return [...getLeafOrder(node.left), ...getLeafOrder(node.right)];
     }
 
-    // --- ツリーの切断とクラスタ割り当て (指定されたクラスタ数 k に分割) ---
+    // --- ツリーの切断とクラスター割り当て (指定されたクラスター数 k に分割) ---
     function cutTree(root, k, N) {
         if (!root || k <= 1) {
+
+
             return {
                 assignments: new Array(N).fill(1),
                 clusters: [{ id: 1, samples: root ? root.samples : [], root: root }]
@@ -306,12 +314,16 @@ window.ClusterEngine = (function () {
             });
         });
 
+
+
         return { assignments, clusters };
     }
 
     // --- シルエット係数 (Silhouette Score) の計算 ---
     function calculateSilhouetteScore(dataMatrix, assignments, k) {
         const N = dataMatrix.length;
+
+
         if (N <= 1 || k <= 1) return { meanScore: 0, sampleScores: new Array(N).fill(0) };
 
         const distMat = Array.from({ length: N }, () => new Float64Array(N));
@@ -370,15 +382,19 @@ window.ClusterEngine = (function () {
             totalScore += s_i;
         }
 
+
+
         return {
             meanScore: totalScore / N,
             sampleScores: Array.from(sampleScores)
         };
     }
 
-    // --- 自動最適クラスタ数の推奨 ---
+    // --- 自動最適クラスター数の推奨 ---
     function recommendOptimalK(root, dataMatrix) {
         const N = dataMatrix.length;
+
+
         if (N <= 2) return { recommendedK: 2, silhouetteScores: {}, reason: "サンプル数が少ないため k=2 を推奨します" };
 
         const maxK = Math.min(10, N - 1);
@@ -398,7 +414,7 @@ window.ClusterEngine = (function () {
             }
         }
 
-        let reason = `シルエット係数の評価（平均 ${maxSilhouette.toFixed(3)}）に基づき、データのまとまりが最も自然な **クラスタ数 ${bestK}** を自動推奨します。`;
+        let reason = `シルエット係数の評価（平均 ${maxSilhouette.toFixed(3)}）に基づき、データのまとまりが最も自然な **クラスター数 ${bestK}** を自動推奨します。`;
         if (maxSilhouette > 0.5) {
             reason += " (非常に明確なセグメント構造が確認できます)";
         } else if (maxSilhouette > 0.25) {
@@ -406,6 +422,8 @@ window.ClusterEngine = (function () {
         } else {
             reason += " (境界がやや緩やかですが、相対的に最も整合性が高い分割です)";
         }
+
+
 
         return {
             recommendedK: bestK,
@@ -418,6 +436,8 @@ window.ClusterEngine = (function () {
     // --- 簡易 2D PCA 計算 (可視化・プロット用) ---
     function compute2DPCA(matrix) {
         const N = matrix.length;
+
+
         if (N === 0) return { coords: [], varianceExplained: [0, 0] };
         const P = matrix[0].length;
 
@@ -459,6 +479,8 @@ window.ClusterEngine = (function () {
                 norm = Math.sqrt(nextVec.reduce((s, v) => s + v * v, 0));
                 vec = nextVec.map(v => v / (norm || 1));
             }
+
+
             return { vector: vec, eigenvalue: norm };
         }
 
@@ -482,9 +504,38 @@ window.ClusterEngine = (function () {
         const exp1 = totalVar > 0 ? (pc1.eigenvalue / totalVar) * 100 : 50;
         const exp2 = totalVar > 0 ? (pc2.eigenvalue / totalVar) * 100 : 30;
 
+
+
         return {
             coords,
             varianceExplained: [exp1, exp2]
+        };
+    }
+
+
+
+    // --- 2D UMAP 計算 (可視化・プロット用) ---
+    function compute2DUMAP(matrix) {
+        const N = matrix.length;
+        if (N === 0) return { coords: [], varianceExplained: [0, 0] };
+        
+        let nNeighbors = Math.min(15, N - 1);
+        if (nNeighbors < 2) nNeighbors = 2; // minimum neighbors required
+
+        const umap = new UMAP.UMAP({
+            nComponents: 2,
+            nNeighbors: nNeighbors,
+            minDist: 0.1,
+            nEpochs: 400
+        });
+        
+        const coords = umap.fit(matrix);
+
+        // UMAP doesn't have "variance explained" in the same way as PCA,
+        // but we'll return dummy values to not break downstream code
+        return {
+            coords,
+            varianceExplained: [0, 0] 
         };
     }
 
@@ -496,7 +547,8 @@ window.ClusterEngine = (function () {
         cutTree,
         calculateSilhouetteScore,
         recommendOptimalK,
-        compute2DPCA
+        compute2DPCA,
+        compute2DUMAP
     };
 
 })();

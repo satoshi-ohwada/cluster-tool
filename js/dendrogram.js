@@ -1,11 +1,11 @@
 /**
- * 簡易クラスタ分析ツール (SVG Dendrogram Renderer)
+ * 簡易クラスター分析ツール (SVG Dendrogram Renderer)
  * 高精細なインタラクティブ・デンドログラム描画ライブラリ
  */
 
 window.DendrogramRenderer = (function () {
 
-    // クラスタ表示用の高品質カラーパレット
+    // クラスター表示用の高品質カラーパレット
     const CLUSTER_COLORS = [
         '#3b82f6', // 1: ブルー
         '#ef4444', // 2: レッド
@@ -38,7 +38,7 @@ window.DendrogramRenderer = (function () {
     }
 
     /**
-     * クリックされた結合ノードの高さに対応するクラスタ数 k (2〜10) を算出する関数
+     * クリックされた結合ノードの高さに対応するクラスター数 k (2〜10) を算出する関数
      */
     function calculateKForNode(rootNode, targetNode) {
         if (!rootNode || !targetNode) return 3;
@@ -148,7 +148,7 @@ window.DendrogramRenderer = (function () {
                 y = (leftLayout.y + rightLayout.y) / 2;
             }
 
-            // 左右のサブツリーが同一クラスタに属していればその色、異なればグレー
+            // 左右のサブツリーが同一クラスターに属していればその色、異なればグレー
             let clusterId = null;
             if (leftLayout.clusterId && leftLayout.clusterId === rightLayout.clusterId) {
                 clusterId = leftLayout.clusterId;
@@ -250,7 +250,7 @@ window.DendrogramRenderer = (function () {
                 const calculatedK = calculateKForNode(root, lNode.node);
 
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-                title.textContent = `結合高さ: ${lNode.node.height.toFixed(3)}${isReversal ? ' (※重心法による逆転現象)' : ''}\n構成サンプル数: ${lNode.node.size} 件\n👉 クリックして クラスタ数 k=${calculatedK} に指定`;
+                title.textContent = `結合高さ: ${lNode.node.height.toFixed(3)}${isReversal ? ' (※重心法による逆転現象)' : ''}\n構成サンプル数: ${lNode.node.size} 件\n👉 クリックして クラスター数 k=${calculatedK} に指定`;
                 circle.appendChild(title);
 
                 circle.addEventListener('click', (e) => {
@@ -286,7 +286,7 @@ window.DendrogramRenderer = (function () {
                 text.textContent = labelText;
 
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-                title.textContent = `[${lNode.clusterId ? 'クラスタ ' + lNode.clusterId : '未割り当て'}] ${labelText}`;
+                title.textContent = `[${lNode.clusterId ? 'クラスター ' + lNode.clusterId : '未割り当て'}] ${labelText}`;
                 text.appendChild(title);
 
                 labelGroup.appendChild(text);
@@ -342,7 +342,7 @@ window.DendrogramRenderer = (function () {
         g.appendChild(axisGroup);
     }
 
-    // クラスタ数 k に対応する切断高度 cutHeight の算出
+    // クラスター数 k に対応する切断高度 cutHeight の算出
     function getCutHeight(root, k, N) {
         if (!root || k <= 1) return getRenderHeight(root) * 1.05;
 

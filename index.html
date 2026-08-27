@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>簡易クラスタ分析ツール</title>
+    <title>簡易クラスター分析ツール</title>
     <!-- CSS -->
     <link rel="stylesheet" href="css/styles.css">
     
@@ -11,6 +11,7 @@
     <script src="lib/papaparse.min.js"></script>
     <script src="lib/xlsx.full.min.js"></script>
     <script src="lib/plotly.min.js"></script>
+    <script src="lib/umap-js.min.js"></script>
     
     <!-- Application Scripts -->
     <script src="js/sample_data.js"></script>
@@ -26,7 +27,7 @@
     <header>
         <div class="header-content">
             <div>
-                <h1>📊 簡易クラスタ分析ツール</h1>
+                <h1>📊 簡易クラスター分析ツール</h1>
                 <p class="subtitle">Excelデータからグループ分けを自動で行うツールです</p>
             </div>
         </div>
@@ -77,6 +78,7 @@
                 <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
                     <button id="btn-sample-city" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🏢 主要都市別 ライフスタイル調査 (30都市×6変数)</button>
                     <button id="btn-sample-cust" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🛒 EC顧客別 購買行動分析 (35顧客×6変数)</button>
+                    <button id="btn-sample-wine" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.4rem 1rem;">🍷 ワインの品質・成分データ (178サンプル×13変数)</button>
                 </div>
             </div>
 
@@ -97,7 +99,7 @@
                 </div>
                 <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.4rem;">※ 売上（万円）と評価（5段階）のように単位や桁数が異なる変数があるときは「標準化」を選んでください。</p>
 
-                <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;">※チェックを外した変数はクラスタ分析から除外されます。</p>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;">※チェックを外した変数はクラスター分析から除外されます。</p>
                 
                 <div class="table-container">
                     <table id="preview-table">
@@ -113,17 +115,17 @@
 
         <!-- Section 2: 分析設定 & デンドログラム -->
         <section id="analysis-section" class="panel hidden">
-            <h2>2. 階層クラスタ分析 & デンドログラム</h2>
+            <h2>2. 階層クラスター分析 & デンドログラム</h2>
             
             <div class="grid-2col" style="margin-bottom: 0.5rem;">
                 <div>
-                    <label for="linkage-method" class="form-label">クラスタ結合手法 (Linkage Method):</label>
+                    <label for="linkage-method" class="form-label">クラスター結合手法 (Linkage Method):</label>
                     <select id="linkage-method" class="form-select">
-                        <option value="ward" selected>ウォード法 (Ward) [推奨] - クラスタ内の分散を最小化</option>
+                        <option value="ward" selected>ウォード法 (Ward) [推奨] - クラスター内の分散を最小化</option>
                         <option value="average">グループ平均法 (Group Average) - 全ペアの平均距離</option>
                         <option value="complete">最遠隣法 (Complete Linkage) - 最も離れた距離</option>
                         <option value="single">最近隣法 (Single Linkage) - 最も近い距離</option>
-                        <option value="centroid">重心法 (Centroid) - クラスタ重心間の距離</option>
+                        <option value="centroid">重心法 (Centroid) - クラスター重心間の距離</option>
                     </select>
                 </div>
                 <div>
@@ -172,16 +174,16 @@
 
             <!-- 自動判定提示エリア -->
             <div id="recommend-card" class="recommend-box">
-                <h4>🤖 自動最適クラスタ数の判定結果</h4>
+                <h4>🤖 自動最適クラスター数の判定結果</h4>
                 <p id="recommend-text">計算中...</p>
                 <div style="margin-top: 0.75rem; text-align: right;">
                     <button id="btn-apply-recommend" class="btn btn-success" style="font-size: 0.85rem; padding: 0.4rem 1rem;">
-                        ✨ 推奨クラスタ数 (<span id="rec-k-val">3</span>) を適用
+                        ✨ 推奨クラスター数 (<span id="rec-k-val">3</span>) を適用
                     </button>
                 </div>
             </div>
 
-            <!-- クラスタ数 k 設定スライダー -->
+            <!-- クラスター数 k 設定スライダー -->
             <div style="margin-bottom: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                     <label style="font-size: 0.95rem; font-weight: 700;">分割するグループ数 <span style="font-size:0.8rem; color:var(--text-muted);">(専門用語: k)</span>:</label>
@@ -220,13 +222,13 @@
 
         <!-- Section 3: 分析結果 & 可視化 -->
         <section id="results-section" class="panel hidden">
-            <h2>3. 分析結果 & クラスタ・プロファイリング</h2>
+            <h2>3. 分析結果 & クラスター・プロファイリング</h2>
 
-            <!-- クラスタ要約統計テーブル -->
+            <!-- クラスター要約統計テーブル -->
             <div style="margin-bottom: 2rem;">
-                <h3>クラスタ別 特徴要約テーブル (平均値)</h3>
+                <h3>クラスター別 特徴要約テーブル (平均値)</h3>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                    ※数値は元の実データ単位での各クラスタ平均値です。色は全体平均に対する高低（青: 高い、赤: 低い）を示します。
+                    ※数値は元の実データ単位での各クラスター平均値です。色は全体平均に対する高低（青: 高い、赤: 低い）を示します。
                 </p>
                 <div class="table-container">
                     <table id="cluster-summary-table">
@@ -235,7 +237,7 @@
                     </table>
                 </div>
 
-                <!-- クラスタ構成比チャート -->
+                <!-- クラスター構成比チャート -->
                 <div id="cluster-pie-chart" style="width: 100%; max-width: 400px; height: 280px; margin: 1rem auto;"></div>
 
                 <!-- 要約統計テーブルの図解説ナラティブボックス -->
@@ -255,21 +257,21 @@
                     <div id="narrative-radar" class="narrative-box" style="margin-top: auto;"></div>
                 </div>
 
-                <!-- 2D PCA マップ -->
+                <!-- 2D UMAP マップ -->
                 <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; display: flex; flex-direction: column;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0;">
-                        <h3 style="margin-top: 0;">グループ分布マップ（主成分分析による2次元表示）</h3>
+                        <h3 style="margin-top: 0;">グループ分布マップ（UMAPによる2次元表示）</h3>
                         <button class="btn-chart-save btn btn-outline" data-chart="pca-scatter-chart" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📷 画像保存</button>
                     </div>
                     <div id="pca-scatter-chart" style="width: 100%; height: 350px;"></div>
-                    <!-- 2D PCAマップの図解説ナラティブボックス -->
+                    <!-- 2D UMAPマップの図解説ナラティブボックス -->
                     <div id="narrative-pca" class="narrative-box" style="margin-top: auto;"></div>
                 </div>
             </div>
 
             <!-- 全サンプル一覧 -->
             <div>
-                <h3>全サンプル クラスタ割当一覧</h3>
+                <h3>全サンプル クラスター割当一覧</h3>
                 <div style="display: flex; gap: 1rem; margin-bottom: 0.5rem; align-items: center;">
                     <input type="text" id="sample-search" class="form-input" placeholder="サンプル名で絞り込み..." style="max-width: 250px; font-size: 0.85rem; padding: 0.35rem 0.75rem;">
                     <span id="sample-count-badge" class="badge badge-primary">0 件</span>
@@ -287,7 +289,7 @@
         <section id="export-section" class="panel hidden">
             <h2>4. 分析結果のエクスポート</h2>
             <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.25rem;">
-                分析結果をExcel形式（.xlsx）またはCSV形式でダウンロードできます。エクセルファイルには「全データと割当」「クラスタ要約統計」「分析設定」の3つのシートが自動生成されます。
+                分析結果をExcel形式（.xlsx）またはCSV形式でダウンロードできます。エクセルファイルには「全データと割当」「クラスター要約統計」「分析設定」の3つのシートが自動生成されます。
             </p>
 
             <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
@@ -302,7 +304,7 @@
 
         <!-- フッター -->
         <footer style="text-align: center; padding: 2rem 1rem; margin-top: 1rem; font-size: 0.8rem; color: #94a3b8;">
-            <p>簡易クラスタ分析ツール v1.0 | 最終更新: 2026年8月</p>
+            <p>簡易クラスター分析ツール v1.0 | 最終更新: 2026年8月</p>
             <p style="margin-top: 0.25rem;">すべての処理はブラウザ内で完結します。データがサーバーに送信されることはありません。</p>
         </footer>
 

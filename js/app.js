@@ -1,5 +1,5 @@
 /**
- * 簡易クラスタ分析ツール - メインアプリケーション制御
+ * 簡易クラスター分析ツール - メインアプリケーション制御
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // クラスタ自動命名生成 (4-1)
+    // クラスター自動命名生成 (4-1)
     function generateClusterLabel(cluster, activeFeatureNames, overallMeans) {
         const count = cluster.samples.length;
         const diffs = activeFeatureNames.map((fName, fIdx) => {
@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnParsePaste = document.getElementById('btn-parse-paste');
     const btnSampleCity = document.getElementById('btn-sample-city');
     const btnSampleCust = document.getElementById('btn-sample-cust');
+    const btnSampleWine = document.getElementById('btn-sample-wine');
     
     const previewContainer = document.getElementById('preview-container');
     const dataSummaryBadge = document.getElementById('data-summary-badge');
@@ -149,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // サンプルデータボタン
         btnSampleCity.addEventListener('click', () => loadSampleData(window.SampleDatasets.cityLifestyle));
         btnSampleCust.addEventListener('click', () => loadSampleData(window.SampleDatasets.customerSegmentation));
+        btnSampleWine.addEventListener('click', () => loadSampleData(window.SampleDatasets.wine));
 
         // 設定変更リスナー
         transformModeSelect.addEventListener('change', (e) => {
@@ -328,11 +330,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // (1-3) データ件数・変数数のバリデーション
         if (state.sampleNames.length < 3) {
-            alert(`クラスタ分析には少なくとも3件以上のデータが必要です。\n現在のデータ件数: ${state.sampleNames.length}件`);
+            alert(`クラスター分析には少なくとも3件以上のデータが必要です。\n現在のデータ件数: ${state.sampleNames.length}件`);
             return;
         }
         if (state.featureNames.length < 2) {
-            alert(`クラスタ分析には少なくとも2つ以上の数値変数（列）が必要です。\n現在の変数数: ${state.featureNames.length}列`);
+            alert(`クラスター分析には少なくとも2つ以上の数値変数（列）が必要です。\n現在の変数数: ${state.featureNames.length}列`);
             return;
         }
 
@@ -405,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sectionNav) sectionNav.classList.remove('hidden');
 
         // タイトル動的更新
-        document.title = `簡易クラスタ分析ツール — ${state.sampleNames.length}件×${state.featureNames.length}変数`;
+        document.title = `簡易クラスター分析ツール — ${state.sampleNames.length}件×${state.featureNames.length}変数`;
 
         applyDataFilters();
         renderPreviewTable();
@@ -518,7 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dataSummaryBadge.textContent = `${state.sampleNames.length} サンプル × ${state.featureNames.length} 変数`;
 
         // Thead
-        let theadHtml = '<tr><th style="width: 40px; text-align: center;" title="チェックを外すとこの変数をクラスタ分析に使用しません">使用</th><th>サンプル名</th>';
+        let theadHtml = '<tr><th style="width: 40px; text-align: center;" title="チェックを外すとこの変数をクラスター分析に使用しません">使用</th><th>サンプル名</th>';
         state.featureNames.forEach((fName, idx) => {
             const isChecked = state.selectedFeatureIndices.includes(idx);
             theadHtml += `
@@ -634,7 +636,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. 前処理 (標準化 / 正規化)
         state.preprocessed = window.ClusterEngine.preprocessData(activeMatrix, state.transformMode);
 
-        // 3. 階層クラスタリングの実行
+        // 3. 階層クラスターリングの実行
         state.clusteringResult = window.ClusterEngine.performHierarchicalClustering(
             state.preprocessed.normalized,
             state.linkageMethod,
@@ -672,20 +674,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         recKVal.textContent = state.recommendInfo.recommendedK;
 
-        // kスライダー範囲調整
+        // kスライダー範囲調整と推奨値の自動適用
         const maxK = Math.min(10, state.sampleNames.length - 1);
         kSlider.max = Math.max(2, maxK);
-        if (state.currentK > maxK) {
-            state.currentK = state.recommendInfo.recommendedK;
-            kSlider.value = state.currentK;
-            kSliderVal.textContent = state.currentK;
-        }
+        
+        // データ読み込み時や手法変更時は常に推奨K値をデフォルトとして適用する
+        state.currentK = state.recommendInfo.recommendedK;
+        kSlider.value = state.currentK;
+        kSliderVal.textContent = state.currentK;
 
-        // 5. クラスタ切断 & UI可視化更新
+        // 5. クラスター切断 & UI可視化更新
         updateClusterCut();
     }
 
-    // --- クラスタ数 k に応じた切断と全グラフ・テーブルの連動更新 ---
+    // --- クラスター数 k に応じた切断と全グラフ・テーブルの連動更新 ---
     function updateClusterCut() {
         if (!state.clusteringResult || !state.clusteringResult.root) return;
 
@@ -712,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderDendrogramView();
         renderSummaryTable();
         renderRadarChart();
-        renderPcaScatterMap();
+        renderUmapScatterMap();
         renderSampleTable();
 
         // 各グラフの文章解説（ナラティブ）生成
@@ -746,7 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    // --- クラスタ要約統計テーブル描画 ---
+    // --- クラスター要約統計テーブル描画 ---
     function renderSummaryTable() {
         const activeFeatureNames = state.selectedFeatureIndices.map(i => state.featureNames[i]);
         const k = state.clusters.length;
@@ -758,7 +760,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return sum / N;
         });
 
-        // (4-1) クラスタ自動命名ラベルの生成
+        // (4-1) クラスター自動命名ラベルの生成
         const clusterLabels = {};
         state.clusters.forEach(cluster => {
             clusterLabels[cluster.id] = generateClusterLabel(cluster, activeFeatureNames, overallMeans);
@@ -766,7 +768,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.clusterLabels = clusterLabels;
 
         // Thead
-        let theadHtml = `<tr><th>クラスタID</th><th>件数 (構成比)</th>`;
+        let theadHtml = `<tr><th>クラスターID</th><th>件数 (構成比)</th>`;
         activeFeatureNames.forEach(fName => {
             theadHtml += `<th style="text-align: right;">${fName}</th>`;
         });
@@ -780,7 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const count = cluster.samples.length;
             const ratio = ((count / N) * 100).toFixed(1);
 
-            // このクラスタの各変数平均
+            // このクラスターの各変数平均
             const clusterMeans = activeFeatureNames.map((_, fIdx) => {
                 const sum = cluster.samples.reduce((s, sIdx) => s + state.rawDataMatrix[sIdx][state.selectedFeatureIndices[fIdx]], 0);
                 return sum / count;
@@ -789,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbodyHtml += `<tr>
                 <td style="font-weight: 700; color: ${cColor}; display: flex; align-items: center; gap: 0.4rem;">
                     <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: ${cColor};"></span>
-                    クラスタ ${cluster.id} <span class="cluster-auto-label" style="background-color: ${cColor}15; color: ${cColor};">${clusterLabels[cluster.id]}</span>
+                    クラスター ${cluster.id} <span class="cluster-auto-label" style="background-color: ${cColor}15; color: ${cColor};">${clusterLabels[cluster.id]}</span>
                 </td>
                 <td><b>${count}</b> 件 (${ratio}%) <button class="cluster-members-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')">▶ メンバー一覧</button><div class="cluster-members-list hidden">${cluster.samples.map(sIdx => state.sampleNames[sIdx]).join('、')}</div></td>`;
 
@@ -821,8 +823,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         clusterSummaryTable.querySelector('tbody').innerHTML = tbodyHtml;
 
-        // (4-2) クラスタ構成比パイチャート
-        const pieLabels = state.clusters.map(c => `クラスタ ${c.id}`);
+        // (4-2) クラスター構成比パイチャート
+        const pieLabels = state.clusters.map(c => `クラスター ${c.id}`);
         const pieValues = state.clusters.map(c => c.samples.length);
         const pieColors = state.clusters.map(c => window.DendrogramRenderer.getClusterColor(c.id));
         const pieChart = document.getElementById('cluster-pie-chart');
@@ -852,7 +854,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.clusters.forEach(cluster => {
             const cColor = window.DendrogramRenderer.getClusterColor(cluster.id);
             
-            // 各クラスタの標準化値平均 (プロファイル比較用)
+            // 各クラスターの標準化値平均 (プロファイル比較用)
             const normMeans = activeFeatureNames.map((_, fIdx) => {
                 const sum = cluster.samples.reduce((s, sIdx) => s + state.preprocessed.normalized[sIdx][fIdx], 0);
                 return sum / cluster.samples.length;
@@ -868,7 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 theta: thetaValues,
                 fill: 'toself',
                 fillcolor: cColor + '22', // 薄い透明度
-                name: `クラスタ ${cluster.id}`,
+                name: `クラスター ${cluster.id}`,
                 line: { color: cColor, width: 2 }
             });
         });
@@ -888,9 +890,9 @@ document.addEventListener('DOMContentLoaded', () => {
         Plotly.newPlot('radar-chart', traces, layout, { responsive: true, displayModeBar: false });
     }
 
-    // --- 2D PCA マップ描画 ---
-    function renderPcaScatterMap() {
-        const { coords, varianceExplained } = window.ClusterEngine.compute2DPCA(state.preprocessed.normalized);
+    // --- 2D UMAP マップ描画 ---
+    function renderUmapScatterMap() {
+        const { coords, varianceExplained } = window.ClusterEngine.compute2DUMAP(state.preprocessed.normalized);
         const traces = [];
 
         state.clusters.forEach(cluster => {
@@ -905,7 +907,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 text: textVals,
                 mode: 'markers+text',
                 type: 'scatter',
-                name: `クラスタ ${cluster.id}`,
+                name: `クラスター ${cluster.id}`,
                 textposition: 'top center',
                 textfont: { size: 10, color: cColor },
                 marker: {
@@ -917,8 +919,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const layout = {
-            xaxis: { title: `主成分 1 (${varianceExplained[0].toFixed(1)}%)`, zeroline: true },
-            yaxis: { title: `主成分 2 (${varianceExplained[1].toFixed(1)}%)`, zeroline: true },
+            xaxis: { title: `UMAP 1`, zeroline: true },
+            yaxis: { title: `UMAP 2`, zeroline: true },
             margin: { t: 30, r: 30, b: 40, l: 50 },
             showlegend: true,
             hovermode: 'closest'
@@ -942,7 +944,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sampleCountBadge.textContent = `${filteredIndices.length} / ${state.sampleNames.length} 件`;
 
         // Thead
-        let theadHtml = '<tr><th>No.</th><th>サンプル名</th><th>割当クラスタ</th>';
+        let theadHtml = '<tr><th>No.</th><th>サンプル名</th><th>割当クラスター</th>';
         activeFeatureNames.forEach(fName => {
             theadHtml += `<th style="text-align: right;">${fName}</th>`;
         });
@@ -960,7 +962,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td style="font-weight: 600;">${state.sampleNames[sIdx]}</td>
                 <td>
                     <span class="badge" style="background-color: ${cColor}15; color: ${cColor}; border: 1px solid ${cColor}44;">
-                        クラスタ ${cId}
+                        クラスター ${cId}
                     </span>
                 </td>`;
 
@@ -1020,11 +1022,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const metricName = metricNameMap[state.distanceMetric] || state.distanceMetric;
 
         let html = `<h5>📝 デンドログラム（樹形図）の図解説</h5>`;
-        html += `<p>全 <b>${N}</b> 件のデータを<b>「${methodName} × ${metricName}」</b>で階層的にグループ化した構造です。結合高度 <b>h = ${cutHeight.toFixed(2)}</b> の赤破線で切断することにより、全体が <b>${k} 個のクラスタ</b> に最適分割されています。</p>`;
+        html += `<p>全 <b>${N}</b> 件のデータを<b>「${methodName} × ${metricName}」</b>で階層的にグループ化した構造です。結合高度 <b>h = ${cutHeight.toFixed(2)}</b> の赤破線で切断することにより、全体が <b>${k} 個のクラスター</b> に最適分割されています。</p>`;
         html += `<p style="margin-top:0.3rem;">樹形図の右側（縦表示時は下側）で早く枝が繋がっているサンプル同士ほど類似性が高く、左側（縦表示時は上側）での大きな分岐は、まったく異なる性質を持つセグメント同士の境界を表します。</p>`;
 
         if (state.linkageMethod === 'centroid') {
-            html += `<p style="margin-top:0.5rem; padding:0.5rem 0.75rem; background:#fffbeb; border:1px solid #fef3c7; border-radius:6px; color:#b45309; font-size:0.83rem; line-height:1.5;">⚠️ <b>重心法（Centroid）の特性解説</b>: 重心法では、結合が進む過程で新クラスタの重心間距離が局所的に小さくなる「逆転現象（非単調性）」が発生することがあります。当ツールでは枝の突き抜けや極端な歪みが生じないよう包絡スケーリングにより美しく表示補正しています。実務において単調で綺麗な樹形図を求める場合は『ウォード法』または『グループ平均法』の使用が推奨されます。</p>`;
+            html += `<p style="margin-top:0.5rem; padding:0.5rem 0.75rem; background:#fffbeb; border:1px solid #fef3c7; border-radius:6px; color:#b45309; font-size:0.83rem; line-height:1.5;">⚠️ <b>重心法（Centroid）の特性解説</b>: 重心法では、結合が進む過程で新クラスターの重心間距離が局所的に小さくなる「逆転現象（非単調性）」が発生することがあります。当ツールでは枝の突き抜けや極端な歪みが生じないよう包絡スケーリングにより美しく表示補正しています。実務において単調で綺麗な樹形図を求める場合は『ウォード法』または『グループ平均法』の使用が推奨されます。</p>`;
         }
 
         el.innerHTML = html;
@@ -1043,7 +1045,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return sum / N;
         });
 
-        let html = `<h5>📝 クラスタ特徴サマリーの図解説（自動定性分析）</h5><ul>`;
+        let html = `<h5>📝 クラスター特徴サマリーの図解説（自動定性分析）</h5><ul>`;
 
         state.clusters.forEach(cluster => {
             const cId = cluster.id;
@@ -1084,7 +1086,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const cColor = window.DendrogramRenderer.getClusterColor(cId);
 
             const autoLabel = state.clusterLabels ? (state.clusterLabels[cId] || '') : '';
-            html += `<li><span style="font-weight:700; color:${cColor}">クラスタ ${cId}「${autoLabel}」</span> (${count}件 / ${ratio}%): ${traitDesc}</li>`;
+            html += `<li><span style="font-weight:700; color:${cColor}">クラスター ${cId}「${autoLabel}」</span> (${count}件 / ${ratio}%): ${traitDesc}</li>`;
         });
 
         html += `</ul>`;
@@ -1096,7 +1098,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!el) return;
 
         let html = `<h5>📝 レーダーチャートの図解説</h5>`;
-        html += `<p>各クラスタの強み・弱みをZスコア（標準化値）で比較したプロファイル図です。<b>図形が外側に膨らんでいる軸ほどそのグループの突出した強み・個性</b>を表し、形状の違いがセグメント同士の質的違いを明快に示します。</p>`;
+        html += `<p>各クラスターの強み・弱みをZスコア（標準化値）で比較したプロファイル図です。<b>図形が外側に膨らんでいる軸ほどそのグループの突出した強み・個性</b>を表し、形状の違いがセグメント同士の質的違いを明快に示します。</p>`;
 
         el.innerHTML = html;
     }
@@ -1105,12 +1107,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const el = document.getElementById('narrative-pca');
         if (!el || !state.preprocessed) return;
 
-        const { varianceExplained } = window.ClusterEngine.compute2DPCA(state.preprocessed.normalized);
+        const { varianceExplained } = window.ClusterEngine.compute2DUMAP(state.preprocessed.normalized);
         const totalExp = (varianceExplained[0] + varianceExplained[1]).toFixed(1);
 
-        let html = `<h5>📝 2D PCAマップの図解説</h5>`;
-        html += `<p>多次元データを主成分分析により最も特徴が表れる2次元平面（情報保持率: <b>${totalExp}%</b>）に縮約・プロットしたマップです。</p>`;
-        html += `<p style="margin-top:0.3rem;">同じ色の点がひと塊の領域に集まり、異色のグループ間と境界線で離れているほど、クラスタリングが成功していることを可視化しています。</p>`;
+        let html = `<h5>📝 2D UMAPマップの図解説</h5>`;
+        html += `<p>多次元のデータをUMAP（非線形次元削減）によって、データ間の距離（近い・遠い）を保ちながら2次元平面上にプロットしたマップです。</p>`;
+        html += `<p style="margin-top:0.3rem;">同じ色の点がひと塊の領域に集まり、異色のグループ間と境界線で離れているほど、クラスターリングが成功していることを可視化しています。</p>`;
 
         el.innerHTML = html;
     }
@@ -1196,20 +1198,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const wb = XLSX.utils.book_new();
         const activeFeatureNames = state.selectedFeatureIndices.map(i => state.featureNames[i]);
 
-        // Sheet 1: 全データとクラスタ割当
+        // Sheet 1: 全データとクラスター割当
         const sheet1Data = [
-            ["ID", "サンプル名", "割当クラスタID", ...activeFeatureNames]
+            ["ID", "サンプル名", "割当クラスターID", ...activeFeatureNames]
         ];
         state.sampleNames.forEach((sName, sIdx) => {
             const rowVals = state.selectedFeatureIndices.map(fIdx => state.rawDataMatrix[sIdx][fIdx]);
-            sheet1Data.push([sIdx + 1, sName, `クラスタ ${state.assignments[sIdx]}`, ...rowVals]);
+            sheet1Data.push([sIdx + 1, sName, `クラスター ${state.assignments[sIdx]}`, ...rowVals]);
         });
         const ws1 = XLSX.utils.aoa_to_sheet(sheet1Data);
         XLSX.utils.book_append_sheet(wb, ws1, "全データと割当");
 
-        // Sheet 2: クラスタ要約統計
+        // Sheet 2: クラスター要約統計
         const sheet2Data = [
-            ["クラスタID", "件数", "構成比(%)", ...activeFeatureNames]
+            ["クラスターID", "件数", "構成比(%)", ...activeFeatureNames]
         ];
         const N = state.sampleNames.length;
         state.clusters.forEach(cluster => {
@@ -1219,10 +1221,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const sum = cluster.samples.reduce((s, sIdx) => s + state.rawDataMatrix[sIdx][state.selectedFeatureIndices[fIdx]], 0);
                 return parseFloat((sum / count).toFixed(2));
             });
-            sheet2Data.push([`クラスタ ${cluster.id}`, count, ratio, ...clusterMeans]);
+            sheet2Data.push([`クラスター ${cluster.id}`, count, ratio, ...clusterMeans]);
         });
         const ws2 = XLSX.utils.aoa_to_sheet(sheet2Data);
-        XLSX.utils.book_append_sheet(wb, ws2, "クラスタ要約統計");
+        XLSX.utils.book_append_sheet(wb, ws2, "クラスター要約統計");
 
         // Sheet 3: 分析設定とメタ情報
         const sheet3Data = [
@@ -1231,15 +1233,15 @@ document.addEventListener('DOMContentLoaded', () => {
             ["分析手法 (Linkage)", state.linkageMethod],
             ["距離尺度 (Distance)", state.distanceMetric],
             ["前処理 (Preprocessing)", state.transformMode],
-            ["設定クラスタ数 (k)", state.currentK],
-            ["自動推奨クラスタ数", state.recommendInfo.recommendedK],
+            ["設定クラスター数 (k)", state.currentK],
+            ["自動推奨クラスター数", state.recommendInfo.recommendedK],
             ["分類の整合性スコア（シルエット係数）", state.silhouetteInfo ? state.silhouetteInfo.meanScore.toFixed(3) : "N/A"]
         ];
         const ws3 = XLSX.utils.aoa_to_sheet(sheet3Data);
         XLSX.utils.book_append_sheet(wb, ws3, "分析設定とメタ情報");
 
         // 書き出し
-        XLSX.writeFile(wb, `簡易クラスタ分析結果_k${state.currentK}.xlsx`);
+        XLSX.writeFile(wb, `簡易クラスター分析結果_k${state.currentK}.xlsx`);
     }
 
     // --- CSV 出力 (.csv) ---
@@ -1248,11 +1250,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const activeFeatureNames = state.selectedFeatureIndices.map(i => state.featureNames[i]);
         const rows = [
-            ["ID", "サンプル名", "割当クラスタ", ...activeFeatureNames]
+            ["ID", "サンプル名", "割当クラスター", ...activeFeatureNames]
         ];
         state.sampleNames.forEach((sName, sIdx) => {
             const rowVals = state.selectedFeatureIndices.map(fIdx => state.rawDataMatrix[sIdx][fIdx]);
-            rows.push([sIdx + 1, sName, `クラスタ ${state.assignments[sIdx]}`, ...rowVals]);
+            rows.push([sIdx + 1, sName, `クラスター ${state.assignments[sIdx]}`, ...rowVals]);
         });
 
         const csvContent = "\uFEFF" + rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
