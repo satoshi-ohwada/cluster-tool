@@ -750,7 +750,10 @@ document.addEventListener('DOMContentLoaded', () => {
         kSlider.value = state.currentK;
         kSliderVal.textContent = state.currentK;
 
-        // 5. クラスター切断 & UI可視化更新
+        // 5. UMAPの計算をキャッシュ
+        state.umapResult = window.ClusterEngine.compute2DUMAP(state.preprocessed.normalized);
+
+        // 6. クラスター切断 & UI可視化更新
         updateClusterCut();
     }
 
@@ -959,7 +962,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 2D UMAP マップ描画 ---
     function renderUmapScatterMap() {
-        const { coords, varianceExplained } = window.ClusterEngine.compute2DUMAP(state.preprocessed.normalized);
+        if (!state.umapResult || !state.umapResult.coords) return;
+        const coords = state.umapResult.coords;
         const traces = [];
 
         const showLabels = document.getElementById('umap-show-labels') ? document.getElementById('umap-show-labels').checked : true;
