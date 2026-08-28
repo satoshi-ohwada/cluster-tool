@@ -123,6 +123,16 @@ document.addEventListener('DOMContentLoaded', () => {
     initEventListeners();
 
     function initEventListeners() {
+        // UMAPラベル表示切替
+        const chkUmapShowLabels = document.getElementById('umap-show-labels');
+        if (chkUmapShowLabels) {
+            chkUmapShowLabels.addEventListener('change', () => {
+                if (state.clusteringResult && state.clusteringResult.root) {
+                    renderUmapScatterMap();
+                }
+            });
+        }
+
         // ドラッグ＆ドロップ
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -895,6 +905,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const { coords, varianceExplained } = window.ClusterEngine.compute2DUMAP(state.preprocessed.normalized);
         const traces = [];
 
+        const showLabels = document.getElementById('umap-show-labels') ? document.getElementById('umap-show-labels').checked : true;
+
         state.clusters.forEach(cluster => {
             const cColor = window.DendrogramRenderer.getClusterColor(cluster.id);
             const xVals = cluster.samples.map(sIdx => coords[sIdx][0]);
@@ -905,7 +917,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 x: xVals,
                 y: yVals,
                 text: textVals,
-                mode: 'markers+text',
+                mode: showLabels ? 'markers+text' : 'markers',
                 type: 'scatter',
                 name: `クラスター ${cluster.id}`,
                 textposition: 'top center',

@@ -261,7 +261,13 @@
                 <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; display: flex; flex-direction: column;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0;">
                         <h3 style="margin-top: 0;">グループ分布マップ（UMAPによる2次元表示）</h3>
-                        <button class="btn-chart-save btn btn-outline" data-chart="pca-scatter-chart" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📷 画像保存</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                                <input type="checkbox" id="umap-show-labels" checked>
+                                ラベル表示
+                            </label>
+                            <button class="btn-chart-save btn btn-outline" data-chart="pca-scatter-chart" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📷 画像保存</button>
+                        </div>
                     </div>
                     <div id="pca-scatter-chart" style="width: 100%; height: 350px;"></div>
                     <!-- 2D UMAPマップの図解説ナラティブボックス -->
