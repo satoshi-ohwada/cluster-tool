@@ -163,26 +163,83 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSampleWine.addEventListener('click', () => loadSampleData(window.SampleDatasets.wine));
 
         // 設定変更リスナー
+        const analysisPresetSelect = document.getElementById('analysis-preset');
+        const customSettingsContainer = document.getElementById('custom-settings-container');
+
+        if (analysisPresetSelect) {
+            analysisPresetSelect.addEventListener('change', (e) => {
+                const mode = e.target.value;
+                if (mode === 'custom') {
+                    customSettingsContainer.classList.remove('hidden');
+                } else {
+                    customSettingsContainer.classList.add('hidden');
+                    if (mode === 'standard') {
+                        state.linkageMethod = 'ward';
+                        state.distanceMetric = 'euclidean';
+                        linkageMethodSelect.value = 'ward';
+                        distanceMetricSelect.value = 'euclidean';
+                    } else if (mode === 'pattern') {
+                        state.linkageMethod = 'average';
+                        state.distanceMetric = 'cosine';
+                        linkageMethodSelect.value = 'average';
+                        distanceMetricSelect.value = 'cosine';
+                    } else if (mode === 'robust') {
+                        state.linkageMethod = 'average';
+                        state.distanceMetric = 'manhattan';
+                        linkageMethodSelect.value = 'average';
+                        distanceMetricSelect.value = 'manhattan';
+                    }
+                    runPipeline();
+                }
+            });
+        }
+
         transformModeSelect.addEventListener('change', (e) => {
             state.transformMode = e.target.value;
             runPipeline();
         });
         linkageMethodSelect.addEventListener('change', (e) => {
             state.linkageMethod = e.target.value;
+            if (analysisPresetSelect && analysisPresetSelect.value !== 'custom') {
+                analysisPresetSelect.value = 'custom';
+                customSettingsContainer.classList.remove('hidden');
+            }
             runPipeline();
         });
         distanceMetricSelect.addEventListener('change', (e) => {
             state.distanceMetric = e.target.value;
+            if (analysisPresetSelect && analysisPresetSelect.value !== 'custom') {
+                analysisPresetSelect.value = 'custom';
+                customSettingsContainer.classList.remove('hidden');
+            }
             runPipeline();
         });
 
         // kスライダー
-        kSlider.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value, 10);
+        const updateKFromSlider = (val) => {
+            val = Math.max(parseInt(kSlider.min, 10), Math.min(parseInt(kSlider.max, 10), val));
+            kSlider.value = val;
             state.currentK = val;
             kSliderVal.textContent = val;
             updateClusterCut();
+        };
+
+        kSlider.addEventListener('input', (e) => {
+            updateKFromSlider(parseInt(e.target.value, 10));
         });
+
+        const btnKDecrease = document.getElementById('btn-k-decrease');
+        const btnKIncrease = document.getElementById('btn-k-increase');
+        if (btnKDecrease) {
+            btnKDecrease.addEventListener('click', () => {
+                updateKFromSlider(state.currentK - 1);
+            });
+        }
+        if (btnKIncrease) {
+            btnKIncrease.addEventListener('click', () => {
+                updateKFromSlider(state.currentK + 1);
+            });
+        }
 
         // 自動推奨適用ボタン
         btnApplyRecommend.addEventListener('click', () => {

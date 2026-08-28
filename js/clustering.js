@@ -390,40 +390,203 @@ window.ClusterEngine = (function () {
         };
     }
 
-    // --- 自動最適クラスター数の推奨 ---
+    // --- Calinski-Harabasz 指標 (最大化) ---
+    function calculateCHIndex(dataMatrix, assignments, k) {
+        const N = dataMatrix.length;
+        if (N <= k || k <= 1) return 0;
+        const P = dataMatrix[0].length;
+
+        const globalMean = new Array(P).fill(0);
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < P; j++) {
+                globalMean[j] += dataMatrix[i][j];
+            }
+        }
+        for (let j = 0; j < P; j++) globalMean[j] /= N;
+
+        const clusterMembers = new Map();
+        for (let i = 0; i < N; i++) {
+            const cId = assignments[i];
+            if (!clusterMembers.has(cId)) clusterMembers.set(cId, []);
+            clusterMembers.get(cId).push(i);
+        }
+
+        let trW = 0;
+        let trB = 0;
+
+        for (const [cId, members] of clusterMembers.entries()) {
+            const n_c = members.length;
+            if (n_c === 0) continue;
+
+            const cMean = new Array(P).fill(0);
+            for (const mIdx of members) {
+                for (let j = 0; j < P; j++) {
+                    cMean[j] += dataMatrix[mIdx][j];
+                }
+            }
+            for (let j = 0; j < P; j++) cMean[j] /= n_c;
+
+            for (const mIdx of members) {
+                for (let j = 0; j < P; j++) {
+                    const diff = dataMatrix[mIdx][j] - cMean[j];
+                    trW += diff * diff;
+                }
+            }
+
+            let bDistSq = 0;
+            for (let j = 0; j < P; j++) {
+                const diff = cMean[j] - globalMean[j];
+                bDistSq += diff * diff;
+            }
+            trB += n_c * bDistSq;
+        }
+
+        if (trW === 0) return 0;
+        return (trB / (k - 1)) / (trW / (N - k));
+    }
+
+    // --- Davies-Bouldin 指標 (最小化) ---
+    function calculateDBIndex(dataMatrix, assignments, k) {
+        const N = dataMatrix.length;
+        if (N <= k || k <= 1) return Infinity;
+        const P = dataMatrix[0].length;
+
+        const clusterMembers = new Map();
+        for (let i = 0; i < N; i++) {
+            const cId = assignments[i];
+            if (!clusterMembers.has(cId)) clusterMembers.set(cId, []);
+            clusterMembers.get(cId).push(i);
+        }
+
+        const centroids = new Map();
+        const dispersions = new Map();
+
+        for (const [cId, members] of clusterMembers.entries()) {
+            const n_c = members.length;
+            const cMean = new Array(P).fill(0);
+            for (const mIdx of members) {
+                for (let j = 0; j < P; j++) {
+                    cMean[j] += dataMatrix[mIdx][j];
+                }
+            }
+            for (let j = 0; j < P; j++) cMean[j] /= n_c;
+            centroids.set(cId, cMean);
+
+            let s = 0;
+            for (const mIdx of members) {
+                let distSq = 0;
+                for (let j = 0; j < P; j++) {
+                    const diff = dataMatrix[mIdx][j] - cMean[j];
+                    distSq += diff * diff;
+                }
+                s += Math.sqrt(distSq);
+            }
+            dispersions.set(cId, n_c > 0 ? s / n_c : 0);
+        }
+
+        let dbIndex = 0;
+        const cIds = Array.from(clusterMembers.keys());
+
+        for (let i = 0; i < cIds.length; i++) {
+            const idI = cIds[i];
+            let maxVal = -Infinity;
+            for (let j = 0; j < cIds.length; j++) {
+                if (i === j) continue;
+                const idJ = cIds[j];
+                
+                let distSq = 0;
+                for (let p = 0; p < P; p++) {
+                    const diff = centroids.get(idI)[p] - centroids.get(idJ)[p];
+                    distSq += diff * diff;
+                }
+                const m_ij = Math.sqrt(distSq);
+
+                if (m_ij > 0) {
+                    const val = (dispersions.get(idI) + dispersions.get(idJ)) / m_ij;
+                    if (val > maxVal) maxVal = val;
+                }
+            }
+            if (maxVal !== -Infinity) {
+                dbIndex += maxVal;
+            }
+        }
+
+        return dbIndex / k;
+    }
+
+    // --- 自動最適クラスター数の推奨 (複数指標による多数決) ---
     function recommendOptimalK(root, dataMatrix) {
         const N = dataMatrix.length;
-
 
         if (N <= 2) return { recommendedK: 2, silhouetteScores: {}, reason: "サンプル数が少ないため k=2 を推奨します" };
 
         const maxK = Math.min(10, N - 1);
         const silhouetteScores = {};
+        const chScores = {};
+        const dbScores = {};
 
-        let bestK = 2;
+        let bestK_Sil = 2;
         let maxSilhouette = -Infinity;
+
+        let bestK_CH = 2;
+        let maxCH = -Infinity;
+
+        let bestK_DB = 2;
+        let minDB = Infinity;
 
         for (let k = 2; k <= maxK; k++) {
             const { assignments } = cutTree(root, k, N);
+            
+            // 1. シルエット係数 (最大化)
             const { meanScore } = calculateSilhouetteScore(dataMatrix, assignments, k);
             silhouetteScores[k] = meanScore;
-
             if (meanScore > maxSilhouette) {
                 maxSilhouette = meanScore;
-                bestK = k;
+                bestK_Sil = k;
+            }
+
+            // 2. Calinski-Harabasz 指標 (最大化)
+            const ch = calculateCHIndex(dataMatrix, assignments, k);
+            chScores[k] = ch;
+            if (ch > maxCH) {
+                maxCH = ch;
+                bestK_CH = k;
+            }
+
+            // 3. Davies-Bouldin 指標 (最小化)
+            const db = calculateDBIndex(dataMatrix, assignments, k);
+            dbScores[k] = db;
+            if (db < minDB) {
+                minDB = db;
+                bestK_DB = k;
             }
         }
 
-        let reason = `シルエット係数の評価（平均 ${maxSilhouette.toFixed(3)}）に基づき、データのまとまりが最も自然な **クラスター数 ${bestK}** を自動推奨します。`;
-        if (maxSilhouette > 0.5) {
-            reason += " (非常に明確なセグメント構造が確認できます)";
-        } else if (maxSilhouette > 0.25) {
-            reason += " (一定の分離構造が見られます)";
-        } else {
-            reason += " (境界がやや緩やかですが、相対的に最も整合性が高い分割です)";
+        // 多数決 (Voting)
+        const votes = {};
+        votes[bestK_Sil] = (votes[bestK_Sil] || 0) + 1;
+        votes[bestK_CH] = (votes[bestK_CH] || 0) + 1;
+        votes[bestK_DB] = (votes[bestK_DB] || 0) + 1;
+
+        let bestK = 2;
+        let maxVotes = 0;
+        for (const [kStr, count] of Object.entries(votes)) {
+            const kInt = parseInt(kStr);
+            if (count > maxVotes) {
+                maxVotes = count;
+                bestK = kInt;
+            } else if (count === maxVotes) {
+                // 同票の場合はシルエット係数に基づくクラスター数を優先
+                if (kInt === bestK_Sil) {
+                    bestK = kInt;
+                }
+            }
         }
 
-
+        let reason = `複数の指標（Silhouette, Calinski-Harabasz, Davies-Bouldin）による多数決に基づき、**クラスター数 ${bestK}** を自動推奨します。<br>`;
+        reason += `・Silhouette係数最適: k=${bestK_Sil}<br>`;
+        reason += `・Calinski-Harabasz最適: k=${bestK_CH}<br>`;
+        reason += `・Davies-Bouldin最適: k=${bestK_DB}`;
 
         return {
             recommendedK: bestK,
