@@ -22,10 +22,11 @@ window.ClusterEngine = (function () {
             }
             
             // 対数変換モードの場合の事前処理
+            let logShift = 0;
             if (mode === 'log') {
-                const minVal = Math.min(...values);
-                const shift = minVal <= 0 ? Math.abs(minVal) + 1 : 0;
-                values = values.map(v => Math.log(v + shift));
+                const rawMinVal = Math.min(...values);
+                logShift = rawMinVal <= 0 ? Math.abs(rawMinVal) + 1 : 0;
+                values = values.map(v => Math.log(v + logShift));
             }
 
             const mean = values.reduce((sum, v) => sum + v, 0) / numRows;
@@ -41,7 +42,7 @@ window.ClusterEngine = (function () {
             const q3 = sorted[Math.floor(sorted.length * 0.75)];
             const iqr = (q3 - q1) || 1;
 
-            colStats.push({ mean, stdDev, min, max, median, iqr });
+            colStats.push({ mean, stdDev, min, max, median, iqr, logShift });
         }
 
         // 変換行列の適用
@@ -53,7 +54,7 @@ window.ClusterEngine = (function () {
                 const st = colStats[j];
 
                 if (mode === 'std' || mode === 'log') {
-                    const valToUse = mode === 'log' ? Math.log(rawVal + (st.min <= 0 ? Math.abs(st.min) + 1 : 0)) : rawVal;
+                    const valToUse = mode === 'log' ? Math.log(rawVal + st.logShift) : rawVal;
                     row.push(st.stdDev === 0 ? 0 : (valToUse - st.mean) / st.stdDev);
                 } else if (mode === 'minmax') {
                     row.push((st.max - st.min) === 0 ? 0.5 : (rawVal - st.min) / (st.max - st.min));
@@ -130,8 +131,8 @@ window.ClusterEngine = (function () {
             });
         }
 
-        // 初期距離行列の作成 (全ペア間)
-        const effectiveMetric = (linkageMethod === 'ward' && distanceMetric === 'euclidean') ? 'sqeuclidean' : distanceMetric;
+        // 初期距離行列の作成 (全ペア間: Ward法およびCentroid法はLance-Williams漸化式の前提として2乗ユークリッド距離を使用)
+        const effectiveMetric = ((linkageMethod === 'ward' || linkageMethod === 'centroid') && distanceMetric === 'euclidean') ? 'sqeuclidean' : distanceMetric;
 
         const D = Array.from({ length: N }, () => new Float64Array(N));
         for (let i = 0; i < N; i++) {
@@ -168,13 +169,7 @@ window.ClusterEngine = (function () {
                 const idA = activeList[i];
                 for (let j = i + 1; j < activeList.length; j++) {
                     const idB = activeList[j];
-                    let d = distMatrix[idA][idB];
-
-                    if (linkageMethod === 'ward') {
-                        const nodeA = clusterMap.get(idA);
-                        const nodeB = clusterMap.get(idB);
-                        d = ((nodeA.size * nodeB.size) / (nodeA.size + nodeB.size)) * distMatrix[idA][idB];
-                    }
+                    const d = distMatrix[idA][idB];
 
                     if (d < minDist) {
                         minDist = d;
@@ -190,9 +185,7 @@ window.ClusterEngine = (function () {
             const nodeB = clusterMap.get(bestB);
 
             let displayHeight = minDist;
-            if (linkageMethod === 'ward') {
-                displayHeight = Math.sqrt(minDist * 2);
-            } else if (effectiveMetric === 'sqeuclidean') {
+            if (effectiveMetric === 'sqeuclidean') {
                 displayHeight = Math.sqrt(minDist);
             }
 
@@ -320,16 +313,15 @@ window.ClusterEngine = (function () {
     }
 
     // --- シルエット係数 (Silhouette Score) の計算 ---
-    function calculateSilhouetteScore(dataMatrix, assignments, k) {
+    function calculateSilhouetteScore(dataMatrix, assignments, k, distanceMetric = 'euclidean') {
         const N = dataMatrix.length;
-
 
         if (N <= 1 || k <= 1) return { meanScore: 0, sampleScores: new Array(N).fill(0) };
 
         const distMat = Array.from({ length: N }, () => new Float64Array(N));
         for (let i = 0; i < N; i++) {
             for (let j = i + 1; j < N; j++) {
-                const d = computeDistance(dataMatrix[i], dataMatrix[j], 'euclidean');
+                const d = computeDistance(dataMatrix[i], dataMatrix[j], distanceMetric);
                 distMat[i][j] = d;
                 distMat[j][i] = d;
             }
@@ -349,26 +341,27 @@ window.ClusterEngine = (function () {
             const ownClusterId = assignments[i];
             const ownMembers = clusterMembers.get(ownClusterId);
 
-            let a_i = 0;
-            if (ownMembers.length > 1) {
-                let sumDist = 0;
-                for (const mIdx of ownMembers) {
-                    if (mIdx !== i) sumDist += distMat[i][mIdx];
-                }
-                a_i = sumDist / (ownMembers.length - 1);
-            } else {
-                a_i = 0;
+            // 単一要素クラスタ（孤立点）の場合は標準定義（scikit-learn等準拠）に基づきシルエット係数を 0 とする
+            if (!ownMembers || ownMembers.length <= 1) {
+                sampleScores[i] = 0;
+                continue;
             }
+
+            let sumDistOwn = 0;
+            for (const mIdx of ownMembers) {
+                if (mIdx !== i) sumDistOwn += distMat[i][mIdx];
+            }
+            const a_i = sumDistOwn / (ownMembers.length - 1);
 
             let b_i = Infinity;
             for (const [otherCId, otherMembers] of clusterMembers.entries()) {
                 if (otherCId === ownClusterId) continue;
 
-                let sumDist = 0;
+                let sumDistOther = 0;
                 for (const mIdx of otherMembers) {
-                    sumDist += distMat[i][mIdx];
+                    sumDistOther += distMat[i][mIdx];
                 }
-                const avgDist = sumDist / otherMembers.length;
+                const avgDist = sumDistOther / otherMembers.length;
                 if (avgDist < b_i) {
                     b_i = avgDist;
                 }
@@ -381,8 +374,6 @@ window.ClusterEngine = (function () {
             sampleScores[i] = s_i;
             totalScore += s_i;
         }
-
-
 
         return {
             meanScore: totalScore / N,
@@ -515,7 +506,7 @@ window.ClusterEngine = (function () {
     }
 
     // --- 自動最適クラスター数の推奨 (複数指標による多数決) ---
-    function recommendOptimalK(root, dataMatrix) {
+    function recommendOptimalK(root, dataMatrix, distanceMetric = 'euclidean') {
         const N = dataMatrix.length;
 
         if (N <= 2) return { recommendedK: 2, silhouetteScores: {}, reason: "サンプル数が少ないため k=2 を推奨します" };
@@ -538,7 +529,7 @@ window.ClusterEngine = (function () {
             const { assignments } = cutTree(root, k, N);
             
             // 1. シルエット係数 (最大化)
-            const { meanScore } = calculateSilhouetteScore(dataMatrix, assignments, k);
+            const { meanScore } = calculateSilhouetteScore(dataMatrix, assignments, k, distanceMetric);
             silhouetteScores[k] = meanScore;
             if (meanScore > maxSilhouette) {
                 maxSilhouette = meanScore;
@@ -628,7 +619,8 @@ window.ClusterEngine = (function () {
         }
 
         function powerIteration(covMat, p) {
-            let vec = Array.from({ length: p }, () => Math.random() - 0.5);
+            // 決定論的かつ部分空間に直交しにくい初期ベクトル
+            let vec = Array.from({ length: p }, (_, i) => 1.0 / Math.sqrt(i + 1));
             let norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
             vec = vec.map(v => v / (norm || 1));
 
@@ -643,6 +635,19 @@ window.ClusterEngine = (function () {
                 vec = nextVec.map(v => v / (norm || 1));
             }
 
+            // 符号の決定論的正規化（最大絶対値の成分を常に正とし、再描画ごとの散布図反転を防止）
+            let maxAbs = -1;
+            let sign = 1;
+            for (let i = 0; i < p; i++) {
+                const absVal = Math.abs(vec[i]);
+                if (absVal > maxAbs) {
+                    maxAbs = absVal;
+                    sign = vec[i] >= 0 ? 1 : -1;
+                }
+            }
+            if (sign < 0) {
+                vec = vec.map(v => -v);
+            }
 
             return { vector: vec, eigenvalue: norm };
         }

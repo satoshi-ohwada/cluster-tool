@@ -713,7 +713,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // 4. 自動推奨 K の計算
         state.recommendInfo = window.ClusterEngine.recommendOptimalK(
             state.clusteringResult.root,
-            state.preprocessed.normalized
+            state.preprocessed.normalized,
+            state.distanceMetric
         );
 
         // 推奨カードの更新
@@ -777,7 +778,8 @@ document.addEventListener('DOMContentLoaded', () => {
         state.silhouetteInfo = window.ClusterEngine.calculateSilhouetteScore(
             state.preprocessed.normalized,
             assignments,
-            state.currentK
+            state.currentK,
+            state.distanceMetric
         );
 
         // 各可視化コンポーネントの再描画
