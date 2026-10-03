@@ -1,0 +1,27 @@
+# Work & Scratch Directories (Ignored by Git, invisible in GitHub Desktop)
+work/*
+!work/.gitkeep
+scratch/*
+!scratch/.gitkeep
+_tmp/
+tmp/
+temp/
+
+# Temporary, debug & backup files
+*.tmp
+*.bak
+*.swp
+*~
+*.log
+*.dump
+
+# OS & Editor generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+.vscode/
+.idea/
+
+# Environment files & Dependencies
+.env
+node_modules/
