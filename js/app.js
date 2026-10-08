@@ -907,12 +907,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 values: pieValues,
                 marker: { colors: pieColors },
                 textinfo: 'label+percent',
-                textfont: { size: 11 },
+                textposition: 'auto',
+                textfont: { size: 12 },
                 hole: 0.35,
                 sort: false,
                 direction: 'clockwise'
             }], {
-                margin: { t: 20, r: 30, b: 20, l: 30 },
+                margin: { t: 40, r: 40, b: 40, l: 40 },
                 showlegend: false
             }, { responsive: true, displayModeBar: false });
         }
